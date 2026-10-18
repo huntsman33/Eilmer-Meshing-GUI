@@ -18,6 +18,8 @@ from .sketch.tools import SKETCH_TOOLS
 
 PROJECT_FILTER = "Eilmer Mesher project (*.emesh.json)"
 PROJECT_SUFFIX = ".emesh.json"
+# Qt's own file dialog: native/portal dialogs can hang under WSLg (no desktop portal).
+FILE_DIALOG_OPTIONS = QFileDialog.DontUseNativeDialog
 
 
 class InputBar(QWidget):
@@ -125,7 +127,7 @@ class MainWindow(QMainWindow):
         self.act_save = self._action("&Save", self.save, QKeySequence.Save)
         self.act_save_as = self._action("Save &As...", self.save_as, QKeySequence.SaveAs)
         self.act_import = self._action("&Import points (.dat/.txt)...", self.import_points, "Ctrl+I", "import")
-        self.act_quit = self._action("&Quit", self.close, QKeySequence.Quit)
+        self.act_quit = self._action("&Quit", self.close, "Ctrl+Q")
 
         self.act_undo = self.model.undo_stack.createUndoAction(self, "&Undo")
         self.act_undo.setShortcut(QKeySequence.Undo)
@@ -254,7 +256,8 @@ class MainWindow(QMainWindow):
     def open_dialog(self):
         if not self._confirm_discard():
             return
-        path, _ = QFileDialog.getOpenFileName(self, "Open project", "", PROJECT_FILTER + ";;All files (*)")
+        path, _ = QFileDialog.getOpenFileName(self, "Open project", "", PROJECT_FILTER + ";;All files (*)",
+                                              options=FILE_DIALOG_OPTIONS)
         if path:
             self.open_path(path)
 
@@ -280,7 +283,7 @@ class MainWindow(QMainWindow):
 
     def save_as(self):
         path, _ = QFileDialog.getSaveFileName(self, "Save project", self.path or "project" + PROJECT_SUFFIX,
-                                              PROJECT_FILTER)
+                                              PROJECT_FILTER, options=FILE_DIALOG_OPTIONS)
         if not path:
             return False
         if not path.endswith(PROJECT_SUFFIX):
@@ -290,7 +293,8 @@ class MainWindow(QMainWindow):
 
     def import_points(self):
         path, _ = QFileDialog.getOpenFileName(self, "Import point file", "",
-                                              "Point files (*.dat *.txt *.csv *.xy);;All files (*)")
+                                              "Point files (*.dat *.txt *.csv *.xy);;All files (*)",
+                                              options=FILE_DIALOG_OPTIONS)
         if not path:
             return
         try:
