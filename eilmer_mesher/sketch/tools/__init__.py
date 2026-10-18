@@ -1,4 +1,5 @@
-from .modify import MergeTool, MirrorTool
+from .dimension import DimensionTool
+from .modify import MergeTool, MirrorTool, MoveTool
 from .draw import (ArcTool, BezierTool, CircleTool, LineTool, PointTool, ProfileTool, RectangleTool,
                    SplineTool, TriangleTool)
 from .select import SelectTool
@@ -16,6 +17,8 @@ SKETCH_TOOLS = [
     (TriangleTool, "Triangle"),
     (BezierTool, "Bezier curve"),
     (SplineTool, "Spline through points"),
+    (DimensionTool, "Dimension: length of a line, angle of an arc; edit to drive the geometry"),
+    (MoveTool, "Move: click objects, then drag (or type dx, dy)"),
     (TrimTool, "Quick trim: delete a piece up to where it meets other curves"),
     (MergeTool, "Merge connected collinear lines, arcs of one circle or spline pieces"),
     (MirrorTool, "Mirror: pick objects, Enter, pick an axis line or the x / y axis, Enter"),

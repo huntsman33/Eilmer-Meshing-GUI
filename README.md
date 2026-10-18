@@ -29,12 +29,14 @@ Default keys (change them under Edit → Keyboard shortcuts; they are saved):
 | O | Point | Construction point (+): a snap target, not geometry |
 | L | Line | Type a number while drawing to fix the length; the cursor sets the direction |
 | P | Profile | Click to chain lines (typed lengths work too). Drag from the last point, or press A, for a tangent arc. Right-click or Esc to finish. |
-| A | Arc | Centre, then start (type a radius first to fix it), then end (type a sweep angle to fix it). Move round the centre for arcs past 180°. M switches to 3-point. |
+| A | Arc | Selected arcs and circles show their centre. Centre, then start (type a radius first to fix it), then end (type a sweep angle to fix it). Move round the centre for arcs past 180°. M switches to 3-point. |
 | C | Circle | Type a radius or click. Stored as four quarter arcs. |
 | R | Rectangle | |
 | T | Triangle | |
 | B | Bezier | Click control points; right-click or Enter to finish |
 | N | Spline | Click points to pass through; right-click or Enter to finish |
+| D | Dimension | Click a line (length) or arc (angle), move to place, click. Type a value while placing to set it. Double-click a dimension to change it, which drives the curve; drag its label to move it. Dimensions show the current value and follow the geometry (no constraint solver yet). |
+| M | Move | Click objects to collect them, then drag from any point to its destination (snaps apply to both). Type `dx, dy` to move exactly. |
 | Q | Quick trim | Click the piece of a curve to delete it, up to where it meets other curves |
 | J | Merge | Click connected pieces, then Enter: joins collinear lines, arcs of one circle (under 180° in total) and pieces of one spline |
 | Shift+M | Mirror | Click objects, Enter, click the symmetry axis (a solid or dashed line, or the x / y axis), Enter. Makes mirrored copies. |

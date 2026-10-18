@@ -64,6 +64,27 @@ class Block:
                    fs_tag=d.get("fs_tag", "initial"))
 
 
+@dataclass
+class Dimension:
+    """
+    A dimension on one curve: "length" (line) or "angle" (arc sweep). Its value is
+    always read from the curve; editing the value drives the curve.
+    offset places the annotation: distance from the line (left of p0 -> p1), or
+    from the arc (outwards).
+    """
+    id: str
+    kind: str
+    curve: str
+    offset: float = 0.0
+
+    def to_dict(self):
+        return {"id": self.id, "kind": self.kind, "curve": self.curve, "offset": self.offset}
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls(d["id"], d["kind"], d["curve"], float(d.get("offset", 0.0)))
+
+
 def _close(a, b, tol=CORNER_TOL):
     return math.hypot(a[0]-b[0], a[1]-b[1]) <= tol * max(1.0, abs(a[0]), abs(a[1]))
 
@@ -74,6 +95,7 @@ class Document:
     def __init__(self):
         self.curves = {}      # id -> Curve, insertion ordered
         self.points = {}      # id -> (x, y): construction points (snap targets, not geometry)
+        self.dimensions = {}  # id -> Dimension
         self.blocks = []      # list[Block]
         self.bcs = {}         # tag -> {"class": "InFlowBC_Supersonic", "args": "flowState=inflow"}
         self._counters = {}
@@ -81,7 +103,7 @@ class Document:
     # --- construction -----------------------------------------------------
     def new_id(self, prefix):
         n = self._counters.get(prefix, 0)
-        existing = set(self.curves) | set(self.points) | {b.id for b in self.blocks}
+        existing = set(self.curves) | set(self.points) | set(self.dimensions) | {b.id for b in self.blocks}
         while True:
             n += 1
             cid = f"{prefix}{n}"
@@ -118,7 +140,14 @@ class Document:
         for cid in ids:
             self.curves.pop(cid, None)
             self.points.pop(cid, None)
+            self.dimensions.pop(cid, None)
+        for did in [d.id for d in self.dimensions.values() if d.curve not in self.curves]:
+            del self.dimensions[did]                # dimensions go with their curve
         return self.remove_blocks_using(ids)
+
+    def add_dimension(self, dim):
+        self.dimensions[dim.id] = dim
+        return dim
 
     # --- block geometry checks --------------------------------------------
     def ref_endpoints(self, ref):
@@ -168,6 +197,7 @@ class Document:
             "version": self.VERSION,
             "curves": [c.to_dict() for c in self.curves.values()],
             "points": [{"id": k, "x": x, "y": y} for k, (x, y) in self.points.items()],
+            "dimensions": [d.to_dict() for d in self.dimensions.values()],
             "blocks": [b.to_dict() for b in self.blocks],
             "bcs": self.bcs,
         }
@@ -179,6 +209,8 @@ class Document:
             doc.add_curve(curve_from_dict(cd))
         for pd in d.get("points", []):
             doc.add_point(pd["id"], (pd["x"], pd["y"]))
+        for dd in d.get("dimensions", []):
+            doc.add_dimension(Dimension.from_dict(dd))
         for bd in d.get("blocks", []):
             doc.add_block(Block.from_dict(bd))
         doc.bcs = dict(d.get("bcs", {}))

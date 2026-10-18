@@ -18,10 +18,11 @@ from PySide6.QtWidgets import QMenu
 from ...model import geom
 from ..canvas import make_pen
 from .base import Tool
+from .dimension import offset_at
 
 DRAG_START_PX = 3
 CONNECT_TOL_PX = 0.5
-EDITABLE = ("point", "line", "arc")
+EDITABLE = ("point", "line", "arc", "dimension")
 
 
 class SelectTool(Tool):
@@ -48,12 +49,23 @@ class SelectTool(Tool):
         doc = self.model.doc
         if eid in doc.points:
             return "point"
+        if eid in doc.dimensions:
+            return "dimension"
         return doc.curves[eid].type if eid in doc.curves else None
 
     # --- press -------------------------------------------------------------------
     def press(self, ev):
         add = bool(ev.modifiers & Qt.ControlModifier)       # Ctrl+click adds / removes
         doc = self.model.doc
+        did = self.canvas.pick_dimension(ev.screen)
+        if did is not None:
+            if add:
+                self.model.set_selection(self.model.selection ^ {did})
+                return
+            self.model.set_selection({did})
+            self.drag = {"kind": "dim", "did": did, "moving": (), "moved": False,
+                         "start_screen": ev.screen}
+            return
         handle = self.canvas.pick_handle(ev.screen)
         if handle is not None and not add:
             cid, name, point = handle
@@ -110,6 +122,8 @@ class SelectTool(Tool):
             if math.hypot(ev.screen.x() - s0.x(), ev.screen.y() - s0.y()) < DRAG_START_PX:
                 return
             d["moved"] = True
+            if d["kind"] == "dim":
+                self.model.begin_edit()
             if d["kind"] in ("handle", "body"):
                 self.model.begin_edit()
                 # Re-snap now that snapping is active for this drag.
@@ -117,6 +131,11 @@ class SelectTool(Tool):
                 self.canvas.last_snap = ev.snap
 
         doc = self.model.doc
+        if d["kind"] == "dim":
+            dim = doc.dimensions[d["did"]]
+            dim.offset = offset_at(dim.kind, doc.curves[dim.curve], ev.world)
+            self.model.notify()
+            return
         if d["kind"] == "handle":
             target = ev.point
             new = d["originals"][d["cid"]].with_handle(d["name"], target)
@@ -143,7 +162,10 @@ class SelectTool(Tool):
         d, self.drag = self.drag, None
         if d is None:
             return
-        if d["kind"] in ("handle", "body"):
+        if d["kind"] == "dim":
+            if d["moved"]:
+                self.model.commit_edit("Move dimension")
+        elif d["kind"] in ("handle", "body"):
             if d["moved"]:
                 self.model.commit_edit("Edit point" if d["kind"] == "handle" else "Move")
         elif d["moved"]:
@@ -155,7 +177,7 @@ class SelectTool(Tool):
 
     def cancel(self):
         if self.drag is not None:
-            if self.drag["kind"] in ("handle", "body") and self.drag["moved"]:
+            if self.drag["kind"] in ("handle", "body", "dim") and self.drag["moved"]:
                 self.model.cancel_edit()
             self.drag = None
             return True

@@ -346,6 +346,141 @@ class TestMirror(SketchTest):
         self.assertEqual(len(self.curves()), 4)                # nothing new
 
 
+class TestDimensions(SketchTest):
+    def setUp(self):
+        super().setUp()
+        self.use("line")
+        self.click((0, 0), (2, 0))
+        (self.line,) = self.model.doc.curves
+
+    def place_length(self, at=(1, 0.5)):
+        self.use("dimension")
+        self.click((1, 0))
+        QTest.mouseMove(self.canvas, scr(at))
+        self.click(at)
+        (did,) = self.model.doc.dimensions
+        return did
+
+    def label_centre(self, did):
+        return self.canvas.dimension_layout(self.model.doc.dimensions[did])["rect"].center().toPoint()
+
+    def test_place_length_dimension(self):
+        did = self.place_length()
+        dim = self.model.doc.dimensions[did]
+        self.assertEqual((dim.kind, dim.curve), ("length", self.line))
+        self.assertAlmostEqual(dim.offset, 0.5)
+        self.assertEqual(self.canvas.dimension_text(dim), "2 m")
+        from eilmer_mesher.model.document import Document
+        again = Document.from_dict(self.model.doc.to_dict())
+        self.assertEqual(again.dimensions[did], dim)
+
+    def test_typed_value_drives_line(self):
+        self.use("dimension")
+        self.click((1, 0))
+        QTest.mouseMove(self.canvas, scr((1, -0.4)))
+        self.assertIsNone(self.canvas.submit_text("3"))
+        self.assertEqual(self.model.doc.curves[self.line].p1, (3.0, 0.0))
+        self.assertEqual(len(self.model.doc.dimensions), 1)
+
+    def test_angle_dimension_on_arc(self):
+        self.use("circle")
+        self.click((5, 0))
+        self.canvas.submit_text("1")
+        arc = next(c for c in self.curves("arc") if c.p0 == (6.0, 0.0))
+        self.use("dimension")
+        mid = geom.arc_point(arc, 0.5)
+        self.click(mid)
+        QTest.mouseMove(self.canvas, scr((mid[0] + 0.3, mid[1] + 0.3)))
+        self.assertIsNone(self.canvas.submit_text("60"))
+        a = self.model.doc.curves[arc.id]
+        np.testing.assert_allclose(a.p1, (5 + 0.5, math.sqrt(0.75)), atol=1e-12)
+        (did,) = self.model.doc.dimensions
+        self.assertEqual(self.canvas.dimension_text(self.model.doc.dimensions[did]), "60\N{DEGREE SIGN}")
+
+    def test_edit_dialog_in_display_units(self):
+        did = self.place_length()
+        dlg, apply = dialog_for(self.model, Units("mm"), did)
+        self.assertAlmostEqual(dlg.values()[0], 2000.0)
+        apply([2500.0])
+        self.assertAlmostEqual(self.model.doc.curves[self.line].p1[0], 2.5)
+
+    def test_double_click_opens_editor_and_drag_moves_label(self):
+        did = self.place_length()
+        self.use("select")
+        asked = []
+        self.canvas.editRequested.connect(asked.append)
+        QTest.mouseDClick(self.canvas, Qt.LeftButton, Qt.NoModifier, self.label_centre(did))
+        self.assertEqual(asked, [did])
+        start = self.label_centre(did)
+        QTest.mousePress(self.canvas, Qt.LeftButton, Qt.NoModifier, start)
+        QTest.mouseMove(self.canvas, scr((1, 0.6)))
+        QTest.mouseMove(self.canvas, scr((1, 1.0)))
+        QTest.mouseRelease(self.canvas, Qt.LeftButton, Qt.NoModifier, scr((1, 1.0)))
+        self.assertAlmostEqual(self.model.doc.dimensions[did].offset, 1.0)
+
+    def test_value_follows_geometry_and_dies_with_curve(self):
+        did = self.place_length()
+        self.use("select")
+        self.click((1, 0))
+        self.drag((2, 0), (4, 0))                       # stretch the line by its end handle
+        self.assertEqual(self.canvas.dimension_text(self.model.doc.dimensions[did]), "4 m")
+        QTest.keyClick(self.canvas, Qt.Key_Delete)
+        self.assertEqual(self.model.doc.dimensions, {})
+        self.model.undo_stack.undo()
+        self.assertIn(did, self.model.doc.dimensions)
+
+
+class TestMove(SketchTest):
+    def setUp(self):
+        super().setUp()
+        self.use("rectangle")
+        self.click((0, 0), (2, 1))
+        self.use("line")
+        self.click((5, 3), (6, 3))
+        self.free = list(self.model.doc.curves)[-1]
+        self.use("move")
+
+    def test_click_to_collect_and_drag(self):
+        self.click((1, 0), (2, 0.5))
+        self.assertEqual(len(self.model.selection), 2)
+        self.drag((1, 0), (1, -1))
+        moved = [c for c in self.curves() if c.p0[1] < 0 or c.p1[1] < 0]
+        self.assertEqual(len(moved), 2)
+        self.click((1, -1))                             # click a selected one: dropped
+        self.assertEqual(len(self.model.selection), 1)
+        self.click((3, 3))                              # empty space clears
+        self.assertEqual(self.model.selection, set())
+
+    def test_snapped_drag_lands_exactly(self):
+        self.click((5.5, 3))
+        self.drag((5.02, 3.01), (2.02, 0.98))           # its start onto the rectangle corner
+        line = self.model.doc.curves[self.free]
+        self.assertEqual((line.p0, line.p1), ((2.0, 1.0), (3.0, 1.0)))
+
+    def test_typed_vector_in_display_units(self):
+        self.canvas.units = Units("mm")
+        self.click((5.5, 3))
+        self.assertIsNone(self.canvas.submit_text("250, -500"))
+        line = self.model.doc.curves[self.free]
+        np.testing.assert_allclose(line.p0, (5.25, 2.5))
+        self.model.undo_stack.undo()
+        self.assertEqual(self.model.doc.curves[self.free].p0, (5.0, 3.0))
+
+
+class TestArcCentreShown(SketchTest):
+    def test_selected_circle_shows_centre(self):
+        self.use("circle")
+        self.click((1, 1))
+        self.canvas.submit_text("1")
+        centre = scr((1, 1))
+        before = self.canvas.grab().toImage().pixelColor(centre.x(), centre.y())
+        self.model.set_selection(self.model.doc.curves)
+        after = self.canvas.grab().toImage().pixelColor(centre.x(), centre.y())
+        self.assertNotEqual(before.name(), after.name())
+        self.assertGreater(after.red(), 180)            # drawn in the selection orange
+        self.assertLess(after.blue(), 140)
+
+
 class TestWindowSettings(unittest.TestCase):
     def tearDown(self):
         settings.app_settings().clear()

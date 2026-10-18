@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QUndoCommand, QUndoStack
 
-from ..model.document import Document
+from ..model.document import Dimension, Document
 from ..model.entities import GEOMETRY, REFERENCE
 
 
@@ -87,7 +87,7 @@ class SketchModel(QObject):
         self.notify()
 
     def entity_ids(self):
-        return set(self.doc.curves) | set(self.doc.points)
+        return set(self.doc.curves) | set(self.doc.points) | set(self.doc.dimensions)
 
     def _prune_selection(self):
         alive = self.selection & self.entity_ids()
@@ -173,6 +173,58 @@ class SketchModel(QObject):
                 doc.add_curve(c.copy(id=doc.new_id("c"), p0=p0, p1=p1, centre=cen))
             self._move_ends(doc, at_start, new_start)
             self._move_ends(doc, at_end, new_end)
+
+    def translate(self, ids, dx, dy, text="Move"):
+        """Move curves and points by (dx, dy); dimensions follow their curves."""
+        with self.edit(text) as doc:
+            for i in ids:
+                if i in doc.curves:
+                    doc.curves[i] = doc.curves[i].map_points(lambda p: (p[0] + dx, p[1] + dy))
+                elif i in doc.points:
+                    x, y = doc.points[i]
+                    doc.points[i] = (x + dx, y + dy)
+
+    # --- dimensions ------------------------------------------------------------------------
+    @staticmethod
+    def dimension_kind(curve):
+        return {"line": "length", "arc": "angle"}.get(curve.type)
+
+    def add_dimension(self, cid, offset):
+        """Dimension a line (length) or arc (angle); re-placing an existing one moves it."""
+        kind = self.dimension_kind(self.doc.curves[cid])
+        if kind is None:
+            raise ValueError("only lines and arcs can be dimensioned")
+        existing = next((d for d in self.doc.dimensions.values()
+                         if d.curve == cid and d.kind == kind), None)
+        with self.edit("Dimension") as doc:
+            if existing is not None:
+                existing.offset = float(offset)
+                return existing.id
+            did = doc.new_id("dim")
+            doc.add_dimension(Dimension(did, kind, cid, float(offset)))
+        return did
+
+    def dimension_value(self, did):
+        """Length (metres) or sweep angle (degrees) the dimension currently shows."""
+        from ..model import geom
+        d = self.doc.dimensions[did]
+        c = self.doc.curves[d.curve]
+        if d.kind == "length":
+            return math.dist(c.p0, c.p1)
+        _, _, _, sweep = geom.arc_geometry(c.p0, c.p1, c.centre)
+        return math.degrees(abs(sweep))
+
+    def set_dimension_value(self, did, value):
+        """Drive the curve to a new length (metres) or sweep angle (degrees)."""
+        from ..model import geom
+        d = self.doc.dimensions[did]
+        c = self.doc.curves[d.curve]
+        if d.kind == "length":
+            angle = math.degrees(math.atan2(c.p1[1] - c.p0[1], c.p1[0] - c.p0[0]))
+            self.set_line(d.curve, value, angle)
+        else:
+            _, r, _, _ = geom.arc_geometry(c.p0, c.p1, c.centre)
+            self.set_arc(d.curve, r, value)
 
     # --- merge and mirror --------------------------------------------------------------
     def merge(self, ids):

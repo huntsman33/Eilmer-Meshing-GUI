@@ -49,6 +49,16 @@ def dialog_for(model, units, eid, parent=None):
         x, y = units.point_to_display(doc.points[eid])
         dlg = DimensionDialog("Point", [("X", x, u, -BIG, BIG), ("Y", y, u, -BIG, BIG)], parent=parent)
         return dlg, lambda v: model.set_point(eid, units.point_from_display(v))
+    if eid in doc.dimensions:
+        dim = doc.dimensions[eid]
+        value = model.dimension_value(eid)
+        if dim.kind == "length":
+            dlg = DimensionDialog("Length dimension", [("Length", units.to_display(value), u, 1e-12, BIG)],
+                                  "The line's start stays; its end moves.", parent)
+            return dlg, lambda v: model.set_dimension_value(eid, units.from_display(v[0]))
+        dlg = DimensionDialog("Angle dimension", [("Sweep angle", value, "deg", 1e-9, 359.999999)],
+                              "The arc's centre and start stay; its end moves.", parent)
+        return dlg, lambda v: model.set_dimension_value(eid, v[0])
     c = doc.curves.get(eid)
     if c is None:
         return None

@@ -24,6 +24,112 @@ class _TargetTool(Tool):
             self.model.set_selection(self.model.selection ^ {eid})
 
 
+class MoveTool(_TargetTool):
+    """
+    Click objects to add them (click a selected one again to drop it), then drag:
+    the drag runs from the snapped press point to the snapped release point.
+    Typing dx, dy moves the selection by an exact vector.
+    """
+    name, label = "move", "Move"
+    snaps = True
+    DRAG_START_PX = 3
+
+    def reset(self):
+        self.drag = None
+
+    def busy(self):
+        return self.drag is not None and self.drag["moved"]
+
+    def anchor(self):
+        return self.drag["origin"] if self.drag else None
+
+    def snap_exclude(self):
+        return self.drag["moving"] if self.drag and self.drag["moved"] else ()
+
+    def _movable(self):
+        doc = self.model.doc
+        return {i for i in self.model.selection if i in doc.curves or i in doc.points}
+
+    def press(self, ev):
+        eid = self.canvas.pick_entity(ev.screen, ev.world)
+        if eid in self.model.doc.dimensions:
+            eid = None                               # dimensions follow their curves
+        added = eid is not None and eid not in self.model.selection
+        if added:
+            self.model.set_selection(self.model.selection | {eid})
+        self.drag = {"origin": ev.point, "eid": eid, "added": added, "moved": False,
+                     "start_screen": ev.screen, "moving": frozenset()}
+
+    def move(self, ev):
+        super().move(ev)
+        d = self.drag
+        if d is None or not ev.dragging:
+            return
+        if not d["moved"]:
+            s0 = d["start_screen"]
+            if (ev.screen.x() - s0.x()) ** 2 + (ev.screen.y() - s0.y()) ** 2 < self.DRAG_START_PX ** 2:
+                return
+            ids = self._movable()
+            if not ids:
+                return
+            d["moved"] = True
+            d["moving"] = frozenset(ids)
+            doc = self.model.doc
+            d["curves"] = {i: doc.curves[i] for i in ids if i in doc.curves}
+            d["points"] = {i: doc.points[i] for i in ids if i in doc.points}
+            self.model.begin_edit()
+            ev.snap = self.canvas.snap(ev.world, self.anchor(), self.snap_exclude())
+            self.canvas.last_snap = ev.snap
+        dx = ev.point[0] - d["origin"][0]
+        dy = ev.point[1] - d["origin"][1]
+        doc = self.model.doc
+        for i, c in d["curves"].items():
+            doc.curves[i] = c.map_points(lambda p: (p[0] + dx, p[1] + dy))
+        for i, (x, y) in d["points"].items():
+            doc.points[i] = (x + dx, y + dy)
+        self.model.notify()
+
+    def release(self, ev):
+        d, self.drag = self.drag, None
+        if d is None:
+            return
+        if d["moved"]:
+            self.model.commit_edit("Move")
+        elif d["eid"] is None:
+            self.model.set_selection(set())          # click on empty space clears
+        elif not d["added"]:
+            self.model.set_selection(self.model.selection - {d["eid"]})
+
+    def cancel(self):
+        if self.drag is not None and self.drag["moved"]:
+            self.model.cancel_edit()
+            self.drag = None
+            return True
+        self.drag = None
+        if self.model.selection:
+            self.model.set_selection(set())
+            return True
+        return False
+
+    def finish(self):
+        pass
+
+    def accept_text(self, text):
+        ids = self._movable()
+        if not ids:
+            return "select something to move first"
+        dx, dy = self.canvas.parse_point(text.lstrip("@"), None)
+        self.model.translate(ids, dx, dy)
+        return None
+
+    def prompt(self):
+        return f"Objects to move ({len(self._movable())} selected): drag, or type dx, dy"
+
+    def hint(self):
+        return ("Move: click objects to add them, then drag from any point to where it should go "
+                "(snaps apply to both). Type dx, dy to move by an exact amount.")
+
+
 class MergeTool(_TargetTool):
     """Click the pieces to join, then Enter (or right-click)."""
     name, label = "merge", "Merge"

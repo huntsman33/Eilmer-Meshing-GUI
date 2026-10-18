@@ -75,6 +75,21 @@ def _draw(name, p):
         p.drawLine(QPointF(22, 6), QPointF(22, 28))
         p.setPen(_pen("#d43f3a", 3.0))
         p.drawLine(QPointF(11.5, 22), QPointF(20.5, 22))
+    elif name == "dimension":
+        p.drawLine(QPointF(5, 8), QPointF(5, 24))
+        p.drawLine(QPointF(27, 8), QPointF(27, 24))
+        p.setPen(_pen(ACCENT, 1.6))
+        p.drawLine(QPointF(6, 16), QPointF(26, 16))
+        p.setBrush(QColor(ACCENT))
+        p.drawPolygon(QPolygonF([QPointF(6, 16), QPointF(11, 13), QPointF(11, 19)]))
+        p.drawPolygon(QPolygonF([QPointF(26, 16), QPointF(21, 13), QPointF(21, 19)]))
+        p.setBrush(Qt.NoBrush)
+    elif name == "move":
+        p.drawLine(QPointF(16, 4), QPointF(16, 28))
+        p.drawLine(QPointF(4, 16), QPointF(28, 16))
+        for tip, a, b in (((16, 4), (12, 9), (20, 9)), ((16, 28), (12, 23), (20, 23)),
+                          ((4, 16), (9, 12), (9, 20)), ((28, 16), (23, 12), (23, 20))):
+            p.drawPolyline(QPolygonF([QPointF(*a), QPointF(*tip), QPointF(*b)]))
     elif name == "merge":
         p.drawLine(QPointF(4, 16), QPointF(13, 16))
         p.drawLine(QPointF(19, 16), QPointF(28, 16))

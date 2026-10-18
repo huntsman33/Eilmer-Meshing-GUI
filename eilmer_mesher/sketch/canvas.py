@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF, QTransform
+from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QPainterPath, QPen, QPolygonF, QTransform
 from PySide6.QtWidgets import QWidget
 
 from ..model import geom
@@ -39,6 +39,7 @@ COLORS = {
     "snap": "#d43f3a",
     "handle": "#ffffff",
     "trim": "#d43f3a",
+    "dimension": "#2a6fb0",
 }
 REGION_FILLS = ["#1a9fd9", "#2e9d57", "#f28c28", "#8e5bd0", "#d43f3a", "#c9a227"]
 POINT_PX = 5
@@ -215,7 +216,92 @@ class SketchCanvas(QWidget):
         return best[1] if best else None
 
     def pick_entity(self, screen, world):
-        return self.pick_point(screen) or self.pick_curve(world)
+        return self.pick_dimension(screen) or self.pick_point(screen) or self.pick_curve(world)
+
+    def pick_dimension(self, screen):
+        """Dimension whose label is under the cursor, or None."""
+        for did, dim in self.model.doc.dimensions.items():
+            layout = self.dimension_layout(dim)
+            if layout is not None and layout["rect"].contains(screen):
+                return did
+        return None
+
+    # --- dimensions -------------------------------------------------------------------
+    def dimension_text(self, dim):
+        c = self.model.doc.curves[dim.curve]
+        if dim.kind == "length":
+            value = self.units.to_display(math.dist(c.p0, c.p1))
+            return f"{value:.6g} {self.units.name}"
+        _, _, _, sweep = geom.arc_geometry(c.p0, c.p1, c.centre)
+        return f"{math.degrees(abs(sweep)):.6g}\N{DEGREE SIGN}"
+
+    def dimension_layout(self, dim, offset=None):
+        """Screen-space drawing of a dimension: polylines, arrows (tip, direction), text, label rect."""
+        c = self.model.doc.curves.get(dim.curve)
+        if c is None:
+            return None
+        offset = dim.offset if offset is None else offset
+        S = lambda p: self.to_screen((float(p[0]), float(p[1])))
+
+        def unit(v):
+            n = math.hypot(v.x(), v.y())
+            return QPointF(v.x() / n, v.y() / n) if n > 0 else QPointF(0.0, 0.0)
+
+        polylines, arrows = [], []
+        if dim.kind == "length":
+            p0, p1 = np.asarray(c.p0, float), np.asarray(c.p1, float)
+            d = p1 - p0
+            L = float(np.hypot(*d))
+            if L == 0.0:
+                return None
+            n = np.array([-d[1], d[0]]) / L
+            side = unit(S(p0 + n * (1.0 if offset >= 0 else -1.0)) - S(p0))
+            A, B = S(p0 + n * offset), S(p1 + n * offset)
+            for P, Q in ((S(p0), A), (S(p1), B)):
+                polylines.append([P + side * 3.0, Q + side * 6.0])
+            polylines.append([A, B])
+            along = unit(B - A)
+            arrows += [(A, along * -1.0), (B, along)]
+            anchor = (A + B) / 2.0 + side * 10.0
+        else:
+            centre, r, a0, sweep = geom.arc_geometry(c.p0, c.p1, c.centre)
+            rd = max(r + offset, 0.05 * r)
+            th = a0 + sweep * np.linspace(0.0, 1.0, 41)
+            ring = [S(centre + rd * np.array([math.cos(t), math.sin(t)])) for t in th]
+            polylines.append(ring)
+            for t in (th[0], th[-1]):
+                u = np.array([math.cos(t), math.sin(t)])
+                radial = unit(S(centre + u * (rd + r)) - S(centre))
+                polylines.append([S(centre + u * r), S(centre + u * rd) + radial * 6.0])
+            arrows += [(ring[0], unit(ring[0] - ring[1])), (ring[-1], unit(ring[-1] - ring[-2]))]
+            tm = a0 + sweep / 2.0
+            um = np.array([math.cos(tm), math.sin(tm)])
+            anchor = S(centre + um * rd) + unit(S(centre + um * (rd + r)) - S(centre)) * 12.0
+        text = self.dimension_text(dim)
+        box = QFontMetricsF(self.font()).boundingRect(text)
+        rect = QRectF(0, 0, box.width() + 8, box.height() + 4)
+        rect.moveCenter(anchor)
+        return {"polylines": polylines, "arrows": arrows, "text": text, "rect": rect}
+
+    def paint_dimension(self, p, dim, color, offset=None):
+        layout = self.dimension_layout(dim, offset)
+        if layout is None:
+            return
+        p.setPen(make_pen(color, 1.2))
+        for line in layout["polylines"]:
+            p.drawPolyline(QPolygonF(line))
+        p.setBrush(QColor(color))
+        for tip, d in layout["arrows"]:
+            perp = QPointF(-d.y(), d.x())
+            p.drawPolygon(QPolygonF([tip, tip - d * 9.0 + perp * 3.2, tip - d * 9.0 - perp * 3.2]))
+        bg = QColor(COLORS["background"])
+        bg.setAlpha(220)
+        p.setPen(Qt.NoPen)
+        p.setBrush(bg)
+        p.drawRect(layout["rect"])
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QColor(color))
+        p.drawText(layout["rect"], Qt.AlignCenter, layout["text"])
 
     def pick_handle(self, screen):
         """(curve_id, handle name, point) of a selected curve's handle under the cursor."""
@@ -313,6 +399,7 @@ class SketchCanvas(QWidget):
             self.tool.paint(p)
 
         p.resetTransform()
+        self._paint_dimensions(p)
         self._paint_points(p)
         self._paint_handles(p)
         if self.tool is not None:
@@ -359,6 +446,16 @@ class SketchCanvas(QWidget):
             p.drawPath(path)
         p.setBrush(Qt.NoBrush)
 
+    def _paint_dimensions(self, p):
+        for did, dim in self.model.doc.dimensions.items():
+            if did in self.model.selection:
+                color = COLORS["selected"]
+            elif did == self.hover_id:
+                color = COLORS["hover"]
+            else:
+                color = COLORS["dimension"]
+            self.paint_dimension(p, dim, color)
+
     def _paint_points(self, p):
         r = POINT_PX
         for pid, pt in self.model.doc.points.items():
@@ -377,6 +474,14 @@ class SketchCanvas(QWidget):
         if not self.model.selection & set(self.model.doc.curves):
             return
         p.setPen(make_pen(COLORS["selected"], 1.2))
+        centres = {tuple(np.round(self.model.doc.curves[cid].centre, 12))
+                   for cid in self.model.selection & set(self.model.doc.curves)
+                   if self.model.doc.curves[cid].type == "arc"}
+        for centre in centres:                       # selected arcs and circles show their centre
+            q = self.to_screen(centre)
+            p.drawEllipse(q, 3.0, 3.0)
+            p.drawLine(q + QPointF(-7, 0), q + QPointF(7, 0))
+            p.drawLine(q + QPointF(0, -7), q + QPointF(0, 7))
         p.setBrush(QColor(COLORS["handle"]))
         h = HANDLE_PX
         for cid in self.model.selection & set(self.model.doc.curves):

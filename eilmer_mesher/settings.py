@@ -22,6 +22,8 @@ DEFAULT_SHORTCUTS = {
     "tool.bezier": ("Bezier", "B"),
     "tool.spline": ("Spline", "N"),
     "tool.point": ("Point", "O"),
+    "tool.dimension": ("Dimension", "D"),
+    "tool.move": ("Move", "M"),
     "tool.trim": ("Quick trim", "Q"),
     "tool.merge": ("Merge", "J"),
     "tool.mirror": ("Mirror", "Shift+M"),

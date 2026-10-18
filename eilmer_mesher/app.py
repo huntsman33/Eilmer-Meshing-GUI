@@ -84,6 +84,9 @@ class InputBar(QWidget):
         tool = self.canvas.tool
         self.prompt.setText(f"<b>{tool.label}</b>  {tool.prompt()}" if tool else "")
         self.edit.setEnabled(bool(tool and tool.name not in ("select", "trim", "merge", "mirror")))
+        if tool is not None and tool.name == "move":
+            self.edit.setPlaceholderText(f"type a move in {self.canvas.units.name}:  dx, dy    or  L<deg")
+            return
         u = self.canvas.units.name
         self.edit.setPlaceholderText(f"type in {u}:  x, y    @dx, dy    @L<deg    or a length / radius / angle")
 
