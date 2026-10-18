@@ -39,7 +39,7 @@ class SketchTest(unittest.TestCase):
         self.canvas.resize(800, 600)
         self.canvas.show()
         self.canvas.scale, self.canvas.cx, self.canvas.cy = 100.0, 0.0, 0.0
-        self.tools = {cls.name: cls(self.canvas) for cls, _, _ in SKETCH_TOOLS}
+        self.tools = {cls.name: cls(self.canvas) for cls, _ in SKETCH_TOOLS}
 
     def tearDown(self):
         # Delete Qt objects now, not during interpreter shutdown after QApplication is gone.
@@ -116,7 +116,7 @@ class TestDrawing(SketchTest):
     def test_profile_space_toggles_arc_and_closes_loop(self):
         self.use("profile")
         self.click((0, 0), (2, 0))
-        QTest.keyClick(self.canvas, Qt.Key_Space)  # next segment is an arc
+        QTest.keyClick(self.canvas, Qt.Key_A)      # next segment is an arc
         self.click((2, 2))                          # semicircle -> two arc pieces
         self.click((0, 2), (0, 0))                  # back to start closes the profile
         self.assertFalse(self.tools["profile"].busy())
@@ -125,6 +125,7 @@ class TestDrawing(SketchTest):
 
     def test_arc_three_point(self):
         self.use("arc")
+        QTest.keyClick(self.canvas, Qt.Key_M)      # centre mode is the default
         self.click((1, 0), (-1, 0), (0, 1))
         arcs = self.curves("arc")
         self.assertEqual(len(arcs), 2)
@@ -181,10 +182,15 @@ class TestSelect(SketchTest):
         self.use("select")
         self.south = next(c for c in self.curves() if c.p0 == (0.0, 0.0))
 
-    def test_click_and_shift_select(self):
+    def test_click_and_ctrl_select(self):
         self.click((1, 0))
         self.assertEqual(self.model.selection, {self.south.id})
-        self.click((2, 0.5), mods=Qt.ShiftModifier)
+        self.click((2, 0.5), mods=Qt.ShiftModifier)      # Shift no longer adds
+        self.assertEqual(len(self.model.selection), 1)
+        self.click((1, 0), mods=Qt.ControlModifier)
+        self.click((1, 1), mods=Qt.ControlModifier)
+        self.assertEqual(len(self.model.selection), 3)   # east (from the plain click), south, north
+        self.click((1, 1), mods=Qt.ControlModifier)      # Ctrl+click again removes
         self.assertEqual(len(self.model.selection), 2)
         self.click((1, 3))                         # empty space clears
         self.assertEqual(self.model.selection, set())

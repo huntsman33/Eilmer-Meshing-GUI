@@ -1,20 +1,24 @@
 """Main window: sketch canvas, tool palette, typed input, menus."""
-import math
 import os
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence
-from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu,
-                               QMessageBox, QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
+                               QToolButton, QVBoxLayout, QWidget)
 
+from . import settings
 from .icons import icon
 from .model.document import Document
+from .settings import DEFAULT_HOLD_KEYS, DEFAULT_SHORTCUTS
+from .shortcuts_dialog import ShortcutsDialog
 from .sketch import snapping
 from .sketch.canvas import SketchCanvas
+from .sketch.edit_dialogs import edit_entity
 from .sketch.import_dialog import ImportPointsDialog
 from .sketch.importers import parse_point_file
 from .sketch.model import SketchModel
 from .sketch.tools import SKETCH_TOOLS
+from .units import UNITS, Units
 
 PROJECT_FILTER = "Eilmer Mesher project (*.emesh.json)"
 PROJECT_SUFFIX = ".emesh.json"
@@ -23,7 +27,11 @@ FILE_DIALOG_OPTIONS = QFileDialog.DontUseNativeDialog
 
 
 class InputBar(QWidget):
-    """NX-style typed input: x, y | @dx, dy | @L<deg | single value (length, radius)."""
+    """
+    NX-style typed input, in display units: x, y | @dx, dy | @L<deg | a single
+    value (length, radius, angle). A single value locks live while you type;
+    click or Enter places it.
+    """
 
     def __init__(self, canvas, parent=None):
         super().__init__(parent)
@@ -31,8 +39,9 @@ class InputBar(QWidget):
         self.prompt = QLabel()
         self.prompt.setMinimumWidth(220)
         self.edit = QLineEdit()
-        self.edit.setPlaceholderText("type coordinates: x, y   @dx, dy   @L<deg   or a length/radius")
         self.edit.returnPressed.connect(self._submit)
+        self.edit.textEdited.connect(canvas.preview_text)
+        canvas.clearTyped.connect(self.clear)
         self.message = QLabel()
         self.message.setStyleSheet("color: #c0392b")
         lay = QHBoxLayout(self)
@@ -40,14 +49,21 @@ class InputBar(QWidget):
         lay.addWidget(self.prompt)
         lay.addWidget(self.edit, 1)
         lay.addWidget(self.message)
+        self.refresh()
 
     def start_typing(self, text):
         self.edit.setFocus()
         self.edit.insert(text)
+        self.canvas.preview_text(self.edit.text())
+
+    def clear(self):
+        self.edit.clear()
+        self.message.clear()
 
     def keyPressEvent(self, ev):
         if ev.key() == Qt.Key_Escape:
-            self.edit.clear()
+            self.clear()
+            self.canvas.preview_text("")
             self.canvas.setFocus()
             return
         super().keyPressEvent(ev)
@@ -61,12 +77,15 @@ class InputBar(QWidget):
         self.message.setText(err or "")
         if not err:
             self.edit.clear()
+            self.canvas.preview_text("")
             self.canvas.setFocus()
 
     def refresh(self):
         tool = self.canvas.tool
         self.prompt.setText(f"<b>{tool.label}</b>  {tool.prompt()}" if tool else "")
-        self.edit.setEnabled(bool(tool and tool.name != "select"))
+        self.edit.setEnabled(bool(tool and tool.name not in ("select", "trim", "merge", "mirror")))
+        u = self.canvas.units.name
+        self.edit.setPlaceholderText(f"type in {u}:  x, y    @dx, dy    @L<deg    or a length / radius / angle")
 
 
 class MainWindow(QMainWindow):
@@ -74,7 +93,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.model = SketchModel(parent=self)
         self.canvas = SketchCanvas(self.model)
-        self.tools = {cls.name: cls(self.canvas) for cls, _, _ in SKETCH_TOOLS}
+        self.canvas.units = Units(settings.units_name())
+        self.tools = {cls.name: cls(self.canvas) for cls, _ in SKETCH_TOOLS}
         self.path = None
 
         self.input_bar = InputBar(self.canvas)
@@ -88,79 +108,92 @@ class MainWindow(QMainWindow):
 
         self.hint_label = QLabel()
         self.coord_label = QLabel()
-        self.coord_label.setMinimumWidth(320)
+        self.coord_label.setMinimumWidth(340)
         self.coord_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.statusBar().addWidget(self.hint_label, 1)
         self.statusBar().addPermanentWidget(self.coord_label)
 
         self._make_actions()
         self._make_menus_and_toolbars()
+        self.apply_shortcuts()
 
         self.canvas.cursorMoved.connect(self._show_cursor)
         self.canvas.typedText.connect(self.input_bar.start_typing)
-        self.canvas.escapeIdle.connect(lambda: self.tool_actions["select"].trigger())
+        self.canvas.escapeIdle.connect(lambda: self.set_tool("select"))
         self.canvas.toolStateChanged.connect(self._refresh_tool_text)
+        self.canvas.editRequested.connect(self.edit_entity)
+        self.canvas.message.connect(lambda text: self.statusBar().showMessage(text, 6000))
         self.model.undo_stack.cleanChanged.connect(self._update_title)
         self.model.changed.connect(self._update_title)
 
-        self.tool_actions["select"].trigger()
+        self.set_tool("select")
         self.resize(1280, 820)
         if path:
             self.open_path(path)
         self._update_title()
 
     # --- actions ---------------------------------------------------------------
-    def _action(self, text, slot, shortcut=None, icon_name=None, checkable=False):
+    def _action(self, sid, text, slot, icon_name=None, checkable=False):
+        """An action whose shortcut comes from settings under id sid (None: no shortcut)."""
         act = QAction(text, self)
         if icon_name:
             act.setIcon(icon(icon_name))
-        if shortcut:
-            act.setShortcut(QKeySequence(shortcut))
         act.setCheckable(checkable)
         if slot is not None:
             act.triggered.connect(slot)
+        if sid is not None:
+            self.actions_by_id[sid] = act
         return act
 
     def _make_actions(self):
-        self.act_new = self._action("&New", self.new_document, QKeySequence.New)
-        self.act_open = self._action("&Open...", self.open_dialog, QKeySequence.Open)
-        self.act_save = self._action("&Save", self.save, QKeySequence.Save)
-        self.act_save_as = self._action("Save &As...", self.save_as, QKeySequence.SaveAs)
-        self.act_import = self._action("&Import points (.dat/.txt)...", self.import_points, "Ctrl+I", "import")
-        self.act_quit = self._action("&Quit", self.close, "Ctrl+Q")
+        self.actions_by_id = {}
+        A = self._action
+        self.act_new = A("file.new", "&New", self.new_document)
+        self.act_open = A("file.open", "&Open...", self.open_dialog)
+        self.act_save = A("file.save", "&Save", self.save)
+        self.act_save_as = A("file.save_as", "Save &As...", self.save_as)
+        self.act_import = A("file.import", "&Import points (.dat/.txt)...", self.import_points, "import")
+        self.act_quit = A("file.quit", "&Quit", self.close)
 
         self.act_undo = self.model.undo_stack.createUndoAction(self, "&Undo")
-        self.act_undo.setShortcut(QKeySequence.Undo)
         self.act_redo = self.model.undo_stack.createRedoAction(self, "&Redo")
-        self.act_redo.setShortcut(QKeySequence.Redo)
-        self.act_delete = self._action("&Delete", self.model.delete_selection)
-        self.act_delete.setShortcuts([QKeySequence.Delete])
-        self.act_select_all = self._action("Select &all", lambda: self.model.set_selection(self.model.doc.curves),
-                                           QKeySequence.SelectAll)
-        self.act_toggle_ref = self._action("Convert to/from &reference", lambda: self.model.toggle_reference(),
-                                           "Shift+X")
-        self.act_ref_mode = self._action("Draw reference (dashed) lines", self._set_reference_mode, "X",
-                                         "reference", checkable=True)
-        self.act_ref_mode.setToolTip("Draw reference (dashed) lines: block splitters, not geometry  [X]")
-        self.act_fit = self._action("Zoom to &fit", self.canvas.zoom_to_fit, "F", "fit")
+        self.actions_by_id["edit.undo"] = self.act_undo
+        self.actions_by_id["edit.redo"] = self.act_redo
+        self.act_delete = A("edit.delete", "&Delete", self.model.delete_selection)
+        self.act_select_all = A("edit.select_all", "Select &all",
+                                lambda: self.model.set_selection(self.model.entity_ids()))
+        self.act_toggle_ref = A("edit.toggle_reference", "Convert to/from &reference",
+                                lambda: self.model.toggle_reference())
+        self.act_ref_mode = A("sketch.reference_mode", "Draw reference (dashed) lines", self._set_reference_mode,
+                              "reference", checkable=True)
+        self.act_fit = A("view.fit", "Zoom to &fit", self.canvas.zoom_to_fit, "fit")
+        self.act_regions = A("view.regions", "Show &regions", self._set_show_regions, "regions", checkable=True)
+        self.act_shortcuts = A(None, "&Keyboard shortcuts...", self.edit_shortcuts)
 
         self.tool_group = QActionGroup(self)
         self.tool_actions = {}
-        for cls, key, tip in SKETCH_TOOLS:
-            act = self._action(cls.label, None, key, cls.name, checkable=True)
-            act.setToolTip(f"{tip}  [{key}]")
+        for cls, tip in SKETCH_TOOLS:
+            act = A(f"tool.{cls.name}", cls.label, None, cls.name, checkable=True)
+            act.setData(tip)
             act.triggered.connect(lambda checked=False, n=cls.name: self.set_tool(n))
             self.tool_group.addAction(act)
             self.tool_actions[cls.name] = act
 
         self.snap_actions = {}
         for kind in snapping.ALL_KINDS:
-            act = self._action(kind.capitalize(), None, checkable=True)
+            act = A("snap.grid" if kind == snapping.GRID else None, kind.capitalize(), None, checkable=True)
             act.setChecked(self.canvas.snapper.enabled[kind])
             act.toggled.connect(lambda on, k=kind: self.canvas.snapper.enabled.__setitem__(k, on))
             self.snap_actions[kind] = act
-        self.snap_actions[snapping.GRID].setShortcut(QKeySequence("G"))
-        self.snap_actions[snapping.GRID].setText("Grid  [G]")
+
+        self.units_group = QActionGroup(self)
+        self.unit_actions = {}
+        for name in UNITS:
+            act = QAction(name, self, checkable=True)
+            act.setChecked(name == self.canvas.units.name)
+            act.triggered.connect(lambda checked=False, n=name: self.set_units(n))
+            self.units_group.addAction(act)
+            self.unit_actions[name] = act
 
     def _make_menus_and_toolbars(self):
         mb = self.menuBar()
@@ -178,6 +211,8 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         for a in (self.act_delete, self.act_select_all, self.act_toggle_ref):
             m.addAction(a)
+        m.addSeparator()
+        m.addAction(self.act_shortcuts)
 
         m = mb.addMenu("&Sketch")
         for act in self.tool_actions.values():
@@ -190,6 +225,10 @@ class MainWindow(QMainWindow):
 
         m = mb.addMenu("&View")
         m.addAction(self.act_fit)
+        m.addAction(self.act_regions)
+        units_menu = m.addMenu("&Units")
+        for act in self.unit_actions.values():
+            units_menu.addAction(act)
 
         tb = self.addToolBar("Sketch")
         tb.setObjectName("sketch-toolbar")
@@ -204,18 +243,58 @@ class MainWindow(QMainWindow):
         snap_button.setPopupMode(QToolButton.InstantPopup)
         snap_button.setMenu(snap_menu)
         tb.addWidget(snap_button)
+        tb.addAction(self.act_regions)
         tb.addSeparator()
         tb.addAction(self.act_import)
         tb.addAction(self.act_fit)
 
-    # --- tools -------------------------------------------------------------------
+    # --- shortcuts ---------------------------------------------------------------
+    def current_shortcuts(self):
+        keys = {**DEFAULT_SHORTCUTS, **DEFAULT_HOLD_KEYS}
+        return {k: settings.shortcut(k) for k in keys}
+
+    def apply_shortcuts(self):
+        current = self.current_shortcuts()
+        for sid, act in self.actions_by_id.items():
+            seq = QKeySequence(current.get(sid, ""))
+            act.setShortcut(seq)
+            text = seq.toString(QKeySequence.NativeText)
+            tip = act.data() or act.text().replace("&", "")
+            act.setToolTip(f"{tip}  [{text}]" if text else tip)
+        for which in ("horizontal", "vertical"):
+            seq = QKeySequence(current[f"hold.{which}"])
+            if not seq.isEmpty():
+                self.canvas.hold_keys[which] = seq[0].key()
+        self.canvas.held.clear()
+
+    def edit_shortcuts(self):
+        dlg = ShortcutsDialog(self.current_shortcuts(), self)
+        if dlg.exec():
+            settings.set_shortcuts(dlg.values())
+            self.apply_shortcuts()
+
+    # --- tools, units, view -----------------------------------------------------------
     def set_tool(self, name):
         self.canvas.set_tool(self.tools[name])
         self.tool_actions[name].setChecked(True)
+        self.input_bar.clear()
         self.canvas.setFocus()
+
+    def set_units(self, name):
+        self.canvas.units = Units(name)
+        self.unit_actions[name].setChecked(True)
+        settings.set_units_name(name)
+        self.input_bar.refresh()
+        if self.canvas.last_snap is not None:
+            self._show_cursor(self.canvas.last_snap)
+        self.canvas.update()
 
     def _set_reference_mode(self, on):
         self.model.reference_mode = on
+        self.canvas.update()
+
+    def _set_show_regions(self, on):
+        self.canvas.show_regions = on
         self.canvas.update()
 
     def _refresh_tool_text(self):
@@ -224,12 +303,16 @@ class MainWindow(QMainWindow):
         self.hint_label.setText(tool.hint() if tool else "")
 
     def _show_cursor(self, snap):
-        step = self.canvas.grid_step()
-        digits = max(0, -math.floor(math.log10(step)) + 1)
-        x, y = snap.point
+        units = self.canvas.units
+        digits = units.digits(self.canvas.grid_step())
+        x, y = units.point_to_display(snap.point)
         kind = f"   [{snap.kind}]" if snap.kind else ""
-        self.coord_label.setText(f"x = {x:.{digits}f}   y = {y:.{digits}f}{kind}")
+        self.coord_label.setText(f"x = {x:.{digits}f}   y = {y:.{digits}f}  {units.name}{kind}")
         self.input_bar.refresh()
+
+    def edit_entity(self, eid):
+        edit_entity(self, self.model, self.canvas.units, eid)
+        self.canvas.setFocus()
 
     # --- files -------------------------------------------------------------------
     def _update_title(self):
@@ -303,7 +386,7 @@ class MainWindow(QMainWindow):
         except (OSError, ValueError) as e:
             QMessageBox.critical(self, "Import failed", f"Could not read {path}:\n{e}")
             return
-        dlg = ImportPointsDialog(pf, path, self)
+        dlg = ImportPointsDialog(pf, path, self, self.canvas.units)
         if dlg.exec():
             ids = self.model.add_curves(dlg.curves(), f"Import {pf.name}")
             self.model.set_selection(ids)

@@ -11,6 +11,7 @@ import numpy as np
 from ..model import geom
 
 ENDPOINT = "endpoint"
+POINT = "point"
 INTERSECTION = "intersection"
 CENTRE = "centre"
 MIDPOINT = "midpoint"
@@ -20,8 +21,8 @@ VERTICAL = "vertical"
 GRID = "grid"
 NONE = ""
 
-POINT_KINDS = (ENDPOINT, INTERSECTION, CENTRE, MIDPOINT)
-PRIORITY = {ENDPOINT: 0, INTERSECTION: 1, CENTRE: 2, MIDPOINT: 3}
+POINT_KINDS = (POINT, ENDPOINT, INTERSECTION, CENTRE, MIDPOINT)
+PRIORITY = {POINT: 0, ENDPOINT: 0, INTERSECTION: 1, CENTRE: 2, MIDPOINT: 3}
 HV = "horizontal/vertical"
 ALL_KINDS = POINT_KINDS + (ON_CURVE, HV, GRID)
 
@@ -51,6 +52,8 @@ class Snapper:
             owners.append(frozenset(ids))
 
         curves = list(doc.curves.values())
+        for pid, p in doc.points.items():
+            add(p, POINT, [pid])
         for c in curves:
             add(c.start(), ENDPOINT, [c.id])
             add(c.end(), ENDPOINT, [c.id])
@@ -94,6 +97,10 @@ class Snapper:
                 if dist <= tol and (near is None or dist < near[1]):
                     near = (q, dist, c.id)
             if near is not None:
+                c = doc.curves[near[2]]
+                if c.type in ("bezier", "spline"):      # refine the polyline estimate
+                    _, q, _ = geom.closest_param(c, p)
+                    return Snap(q, ON_CURVE, c.id)
                 return Snap(near[0], ON_CURVE, near[2])
 
         x, y = float(p[0]), float(p[1])

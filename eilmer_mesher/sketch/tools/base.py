@@ -3,7 +3,6 @@ import math
 
 from ...model.entities import ArcSeg, LineSeg
 from ..canvas import COLORS
-from ..typed_input import parse_point
 
 SAME_POINT_PX = 1.0
 
@@ -75,9 +74,20 @@ class Tool:
     def key(self, key):
         return False
 
+    def double_click(self, ev):
+        pass
+
     def accept_text(self, text):
-        self.click(parse_point(text, self.anchor()))
+        """Enter in the input box (display units). Returns an error message or None."""
+        self.click(self.canvas.parse_point(text, self.anchor()))
         return None
+
+    def preview_text(self, text):
+        """Text being typed in the input box, before Enter (e.g. to lock a length)."""
+
+    def consume_typed(self):
+        """The typed value has been used: clear the input box."""
+        self.canvas.clearTyped.emit()
 
     # --- text --------------------------------------------------------------------
     def prompt(self):

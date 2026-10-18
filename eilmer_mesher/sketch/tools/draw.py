@@ -1,4 +1,9 @@
-"""Drawing tools: line, profile, arc, circle, rectangle, triangle, Bezier, spline."""
+"""
+Drawing tools: point, line, profile, arc, circle, rectangle, triangle, Bezier, spline.
+
+Typing a number while drawing locks a value live (line length, circle radius,
+arc radius then sweep angle); the next click or Enter places the point with it.
+"""
 import math
 
 from PySide6.QtCore import Qt
@@ -9,10 +14,28 @@ from ..canvas import COLORS
 from ..typed_input import single_number
 from .base import Tool
 
+TWO_PI = 2.0 * math.pi
+
 
 def _unit(v):
     n = math.hypot(v[0], v[1])
     return (v[0] / n, v[1] / n) if n > 0 else (1.0, 0.0)
+
+
+def _toward(origin, point, length):
+    d = _unit((point[0] - origin[0], point[1] - origin[1]))
+    return (origin[0] + length * d[0], origin[1] + length * d[1])
+
+
+class PointTool(Tool):
+    """Construction point: a snap target drawn as '+'. Double-click it (Select) to edit."""
+    name, label = "point", "Point"
+
+    def click(self, point):
+        self.model.add_point(point)
+
+    def prompt(self):
+        return "Point (x, y)"
 
 
 class LineTool(Tool):
@@ -20,6 +43,7 @@ class LineTool(Tool):
 
     def reset(self):
         self.p0 = None
+        self.lock = None
 
     def busy(self):
         return self.p0 is not None
@@ -27,31 +51,57 @@ class LineTool(Tool):
     def anchor(self):
         return self.p0
 
+    def target(self, point):
+        """End point for the cursor, honouring a typed length."""
+        if self.p0 is None or self.lock is None:
+            return point
+        return _toward(self.p0, point, self.lock)
+
     def click(self, point):
         if self.p0 is None:
             self.p0 = point
-        elif self.distinct(self.p0, point):
-            self.add([self.line(self.p0, point)], "Line")
+            return
+        end = self.target(point)
+        if self.distinct(self.p0, end):
+            self.add([self.line(self.p0, end)], "Line")
             self.p0 = None
+            if self.lock is not None:
+                self.lock = None
+                self.consume_typed()
+
+    def preview_text(self, text):
+        self.lock = self.canvas.parse_length(text) if self.p0 is not None else None
+        if self.lock is not None and self.lock <= 0:
+            self.lock = None
 
     def accept_text(self, text):
-        length = single_number(text)
+        length = self.canvas.parse_length(text)
         if length is not None and self.p0 is not None:
-            d = _unit((self.cursor[0] - self.p0[0], self.cursor[1] - self.p0[1])) if self.cursor else (1.0, 0.0)
-            self.click((self.p0[0] + length*d[0], self.p0[1] + length*d[1]))
+            if length <= 0:
+                return "length must be positive"
+            self.lock = length
+            cursor = self.cursor if self.cursor and self.distinct(self.cursor, self.p0) else \
+                (self.p0[0] + 1.0, self.p0[1])
+            self.click(cursor)
             return None
         return super().accept_text(text)
 
     def prompt(self):
-        return "Start point" if self.p0 is None else "End point or length"
+        if self.p0 is None:
+            return "Start point"
+        if self.lock is not None:
+            return f"Direction (length {self.canvas.units.format(self.lock)})"
+        return "End point, or type a length"
 
     def paint(self, painter):
-        if self.p0 is not None and self.cursor is not None and self.distinct(self.p0, self.cursor):
-            self.draw_preview(painter, [self.line(self.p0, self.cursor)])
+        if self.p0 is not None and self.cursor is not None:
+            end = self.target(self.cursor)
+            if self.distinct(self.p0, end):
+                self.draw_preview(painter, [self.line(self.p0, end)])
 
 
 class ProfileTool(Tool):
-    """Chain of lines and tangent arcs. Drag from the last point (or press Space) for an arc."""
+    """Chain of lines and tangent arcs. Drag from the last point (or press A) for an arc."""
     name, label = "profile", "Profile"
     DRAG_PX = 8
 
@@ -60,6 +110,7 @@ class ProfileTool(Tool):
         self.last = None
         self.tangent = None
         self.arc_mode = False
+        self.lock = None
         self._press_screen = None
         self._drag_arc = False
 
@@ -100,12 +151,19 @@ class ProfileTool(Tool):
         else:
             self._add_line(point)
 
+    def _line_end(self, point):
+        return point if self.lock is None else _toward(self.last, point, self.lock)
+
     def _add_line(self, point):
-        if not self.distinct(self.last, point):
+        end = self._line_end(point)
+        if not self.distinct(self.last, end):
             return
-        self.add([self.line(self.last, point)], "Profile line")
-        self.tangent = _unit((point[0] - self.last[0], point[1] - self.last[1]))
-        self._advance(point)
+        self.add([self.line(self.last, end)], "Profile line")
+        self.tangent = _unit((end[0] - self.last[0], end[1] - self.last[1]))
+        if self.lock is not None:
+            self.lock = None
+            self.consume_typed()
+        self._advance(end)
 
     def _add_arc(self, point):
         if not self.distinct(self.last, point):
@@ -126,13 +184,31 @@ class ProfileTool(Tool):
             self.reset()          # closed the loop
 
     def claims_key(self, key):
-        return key == Qt.Key_Space
+        return key == Qt.Key_A and self.busy()
 
     def key(self, key):
-        if key == Qt.Key_Space and self.tangent is not None:
+        if key == Qt.Key_A and self.tangent is not None:
             self.arc_mode = not self.arc_mode
             return True
         return False
+
+    def preview_text(self, text):
+        ok = self.last is not None and not self.arc_mode
+        self.lock = self.canvas.parse_length(text) if ok else None
+        if self.lock is not None and self.lock <= 0:
+            self.lock = None
+
+    def accept_text(self, text):
+        length = self.canvas.parse_length(text)
+        if length is not None and self.last is not None and not self.arc_mode:
+            if length <= 0:
+                return "length must be positive"
+            self.lock = length
+            cursor = self.cursor if self.cursor and self.distinct(self.cursor, self.last) else \
+                (self.last[0] + (self.tangent or (1.0, 0.0))[0], self.last[1] + (self.tangent or (1.0, 0.0))[1])
+            self._add_line(cursor)
+            return None
+        return super().accept_text(text)
 
     def _preview_curves(self):
         if self.last is None or self.cursor is None or not self.distinct(self.last, self.cursor):
@@ -141,31 +217,45 @@ class ProfileTool(Tool):
             pieces = geom.tangent_arc(self.last, self.tangent, self.cursor)
             if pieces is not None:
                 return self.arcs(pieces)
-        return [self.line(self.last, self.cursor)]
+        end = self._line_end(self.cursor)
+        return [self.line(self.last, end)] if self.distinct(self.last, end) else []
 
     def prompt(self):
         if self.last is None:
             return "Start point"
-        return "Next point" + (" (arc)" if self.arc_mode else "")
+        if self.arc_mode:
+            return "Arc end point"
+        if self.lock is not None:
+            return f"Direction (length {self.canvas.units.format(self.lock)})"
+        return "Next point, or type a length"
 
     def hint(self):
-        return "Click to add lines. Drag from the last point or press Space for a tangent arc. Right-click or Esc to finish."
+        return ("Click to add lines; type a number to fix the length. Drag from the last point or press A "
+                "for a tangent arc. Right-click or Esc to finish.")
 
     def paint(self, painter):
         self.draw_preview(painter, self._preview_curves())
 
 
 class ArcTool(Tool):
-    """Three-point arc (start, end, point on arc) or centre-start-end (press M to switch)."""
+    """
+    Centre mode (default): click the centre, type a radius (optional), click the
+    start, type a sweep angle (optional), click the end. The sweep follows the
+    cursor round from the start, so arcs past 180 degrees just work.
+    3-point mode (press M): start, end, then a point on the arc.
+    """
     name, label = "arc", "Arc"
 
     def __init__(self, canvas):
-        self.mode = "3pt"
-        self.ccw = True
+        self.mode = "centre"
         super().__init__(canvas)
 
     def reset(self):
         self.pts = []
+        self.radius_lock = None
+        self.sweep_lock = None      # radians, magnitude (sign follows the cursor)
+        self._sweep = 0.0           # accumulated signed sweep following the cursor
+        self._last_angle = None
 
     def busy(self):
         return bool(self.pts)
@@ -173,55 +263,154 @@ class ArcTool(Tool):
     def anchor(self):
         return self.pts[-1] if self.pts else None
 
-    def _pieces(self, point):
-        if self.mode == "3pt" and len(self.pts) == 2:
-            return geom.arcs_through_3_points(self.pts[0], point, self.pts[1])
-        if self.mode == "centre" and len(self.pts) == 2:
-            return geom.arcs_centre_start_end(self.pts[0], self.pts[1], point, self.ccw)
-        return None
+    # --- centre mode helpers -------------------------------------------------------
+    def _radius(self, point):
+        c = self.pts[0]
+        return self.radius_lock if self.radius_lock is not None else math.dist(c, point)
 
+    def _angle(self, p):
+        c = self.pts[0]
+        return math.atan2(p[1] - c[1], p[0] - c[0])
+
+    def _current_sweep(self):
+        sweep = self._sweep
+        if self.sweep_lock is not None:
+            sweep = math.copysign(self.sweep_lock, sweep if sweep != 0.0 else 1.0)
+        return max(-TWO_PI + 1e-9, min(TWO_PI - 1e-9, sweep))
+
+    def _centre_pieces(self):
+        c, start = self.pts
+        sweep = self._current_sweep()
+        if abs(sweep) < 1e-9:
+            return None
+        r = math.dist(c, start)
+        return geom.arc_pieces(c, r, self._angle(start), sweep, start, None)
+
+    def move(self, ev):
+        super().move(ev)
+        if self.mode == "centre" and len(self.pts) == 2:
+            a = self._angle(ev.point)
+            if self._last_angle is not None:
+                d = (a - self._last_angle + math.pi) % TWO_PI - math.pi
+                self._sweep += d
+            self._last_angle = a
+
+    # --- input ------------------------------------------------------------------------
     def click(self, point):
         if self.pts and not self.distinct(self.pts[-1], point):
             return
-        if len(self.pts) < 2:
-            self.pts.append(point)
+        if self.mode == "3pt":
+            if len(self.pts) < 2:
+                self.pts.append(point)
+                return
+            pieces = geom.arcs_through_3_points(self.pts[0], point, self.pts[1])
+            if pieces is not None:
+                self.add(self.arcs(pieces), "Arc")
+                self.reset()
             return
-        pieces = self._pieces(point)
-        if pieces is not None:
-            self.add(self.arcs(pieces), "Arc")
-            self.reset()
+
+        if not self.pts:                                  # centre
+            self.pts.append(point)
+        elif len(self.pts) == 1:                          # start, at the (typed) radius
+            r = self._radius(point)
+            if r <= self.canvas.px(1):
+                return
+            self.pts.append(_toward(self.pts[0], point, r))
+            self._sweep = 0.0
+            self._last_angle = self._angle(self.pts[1])
+            if self.radius_lock is not None:
+                self.radius_lock = None
+                self.consume_typed()
+        else:                                             # end
+            pieces = self._centre_pieces()
+            if pieces is not None:
+                self.add(self.arcs(pieces), "Arc")
+                if self.sweep_lock is not None:
+                    self.consume_typed()
+                self.reset()
+
+    def preview_text(self, text):
+        self.radius_lock = self.sweep_lock = None
+        if self.mode != "centre":
+            return
+        if len(self.pts) == 1:
+            r = self.canvas.parse_length(text)
+            self.radius_lock = r if r is not None and r > 0 else None
+        elif len(self.pts) == 2:
+            deg = single_number(text)
+            if deg is not None and 0 < abs(deg) < 360:
+                self.sweep_lock = math.radians(abs(deg))
+                if deg < 0 and self._sweep == 0.0:
+                    self._sweep = -1e-12          # a negative typed angle means clockwise
+
+    def accept_text(self, text):
+        if self.mode == "centre" and len(self.pts) in (1, 2):
+            self.preview_text(text)
+            locked = self.radius_lock if len(self.pts) == 1 else self.sweep_lock
+            if locked is not None:
+                if len(self.pts) == 1:
+                    cursor = self.cursor if self.cursor and self.distinct(self.cursor, self.pts[0]) else \
+                        (self.pts[0][0] + 1.0, self.pts[0][1])
+                    self.click(cursor)
+                else:
+                    self.click(self.cursor or self.pts[1])
+                return None
+        return super().accept_text(text)
 
     def claims_key(self, key):
-        return key in (Qt.Key_M, Qt.Key_D)
+        return key == Qt.Key_M
 
     def key(self, key):
         if key == Qt.Key_M:
-            self.mode = "centre" if self.mode == "3pt" else "3pt"
+            self.mode = "3pt" if self.mode == "centre" else "centre"
             self.reset()
-            return True
-        if key == Qt.Key_D:
-            self.ccw = not self.ccw
             return True
         return False
 
     def prompt(self):
         if self.mode == "3pt":
             return ["Arc start", "Arc end", "Point on arc"][len(self.pts)]
-        return ["Arc centre", "Arc start", "Arc end"][len(self.pts)]
+        if not self.pts:
+            return "Arc centre"
+        if len(self.pts) == 1:
+            if self.radius_lock is not None:
+                return f"Start direction (radius {self.canvas.units.format(self.radius_lock)})"
+            return "Start point, or type a radius"
+        if self.sweep_lock is not None:
+            return f"End side (sweep {math.degrees(self.sweep_lock):.6g} deg)"
+        return "End point, or type a sweep angle (deg)"
 
     def hint(self):
-        mode = "3-point" if self.mode == "3pt" else "centre-start-end (D flips direction)"
-        return f"Arc: {mode}. Press M to switch mode."
+        if self.mode == "3pt":
+            return "Arc, 3-point: start, end, then a point on the arc. M switches to centre mode."
+        return ("Arc: centre, then start (type a radius first to fix it), then end (type an angle to fix "
+                "the sweep). Move round the centre past 180 degrees for larger arcs. M switches to 3-point.")
 
     def paint(self, painter):
         if not self.pts or self.cursor is None:
             return
+        if self.mode == "3pt":
+            if len(self.pts) == 1:
+                if self.distinct(self.pts[0], self.cursor):
+                    self.canvas.draw_curve(painter, self.line(self.pts[0], self.cursor),
+                                           COLORS["preview"], 1.0, dashed=True)
+                return
+            pieces = geom.arcs_through_3_points(self.pts[0], self.cursor, self.pts[1])
+            if pieces is not None:
+                self.draw_preview(painter, self.arcs(pieces))
+            return
+        c = self.pts[0]
         if len(self.pts) == 1:
-            if self.distinct(self.pts[0], self.cursor):
-                self.canvas.draw_curve(painter, self.line(self.pts[0], self.cursor),
+            r = self._radius(self.cursor)
+            if r > self.canvas.px(1):
+                guide = self.arcs(geom.circle_arcs(c, r))
+                for a in guide:
+                    self.canvas.draw_curve(painter, a, COLORS["axes"], 1.0, dashed=True)
+                self.canvas.draw_curve(painter, self.line(c, _toward(c, self.cursor, r)),
                                        COLORS["preview"], 1.0, dashed=True)
             return
-        pieces = self._pieces(self.cursor)
+        self.canvas.draw_curve(painter, self.line(c, self.pts[1]), COLORS["axes"], 1.0, dashed=True)
+        pieces = self._centre_pieces()
         if pieces is not None:
             self.draw_preview(painter, self.arcs(pieces))
 
@@ -231,6 +420,7 @@ class CircleTool(Tool):
 
     def reset(self):
         self.centre = None
+        self.lock = None
 
     def busy(self):
         return self.centre is not None
@@ -241,17 +431,26 @@ class CircleTool(Tool):
     def _circle(self, r):
         return self.arcs(geom.circle_arcs(self.centre, r))
 
+    def _radius(self, point):
+        return self.lock if self.lock is not None else math.dist(self.centre, point)
+
     def click(self, point):
         if self.centre is None:
             self.centre = point
             return
-        r = math.hypot(point[0] - self.centre[0], point[1] - self.centre[1])
+        r = self._radius(point)
         if r > self.canvas.px(1):
             self.add(self._circle(r), "Circle")
+            if self.lock is not None:
+                self.consume_typed()
             self.reset()
 
+    def preview_text(self, text):
+        r = self.canvas.parse_length(text) if self.centre is not None else None
+        self.lock = r if r is not None and r > 0 else None
+
     def accept_text(self, text):
-        r = single_number(text)
+        r = self.canvas.parse_length(text)
         if r is not None and self.centre is not None:
             if r <= 0:
                 return "radius must be positive"
@@ -261,11 +460,15 @@ class CircleTool(Tool):
         return super().accept_text(text)
 
     def prompt(self):
-        return "Centre" if self.centre is None else "Radius or point on circle"
+        if self.centre is None:
+            return "Centre"
+        if self.lock is not None:
+            return f"Radius {self.canvas.units.format(self.lock)}: click or Enter"
+        return "Radius, or point on circle"
 
     def paint(self, painter):
         if self.centre is not None and self.cursor is not None:
-            r = math.hypot(self.cursor[0] - self.centre[0], self.cursor[1] - self.centre[1])
+            r = self._radius(self.cursor)
             if r > self.canvas.px(1):
                 self.draw_preview(painter, self._circle(r))
 

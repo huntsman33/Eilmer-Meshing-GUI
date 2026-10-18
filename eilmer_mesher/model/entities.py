@@ -9,7 +9,7 @@ A curve's kind is either "geometry" (solid line, may carry a BC tag) or
 import math
 from dataclasses import dataclass, field, replace
 
-from gridgen.path import Line, Arc, Bezier, Spline
+from gridgen.path import Line, Arc
 
 GEOMETRY = "geometry"
 REFERENCE = "reference"
@@ -42,6 +42,10 @@ class Curve:
 
     def lua_class(self):
         raise NotImplementedError
+
+    def lua_expr(self, name_of):
+        """Complete Lua constructor expression for this path."""
+        return f"{self.lua_class()}:new{{{self.lua_args(name_of)}}}"
 
     def geometry_dict(self):
         raise NotImplementedError
@@ -193,7 +197,8 @@ class BezierSeg(Curve):
         return self.copy(points=_point_list_with_handle(self.points, name, p))
 
     def to_gridgen(self):
-        return Bezier(self.points)
+        from .geom import CurvePath
+        return CurvePath(self)
 
     def lua_class(self): return "Bezier"
 
@@ -206,18 +211,37 @@ class BezierSeg(Curve):
 
 @dataclass
 class SplineSeg(Curve):
-    """Interpolating cubic spline through points (Eilmer Spline)."""
+    """
+    Interpolating cubic spline through points (Eilmer Spline). A trimmed spline
+    keeps its points and covers parameters [t0, t1] (Eilmer SubRangedPath).
+    """
     points: list = field(default_factory=list)
+    t0: float = 0.0
+    t1: float = 1.0
 
     type = "spline"
 
-    def start(self): return self.points[0]
-    def end(self): return self.points[-1]
+    def trimmed(self):
+        return self.t0 != 0.0 or self.t1 != 1.0
+
+    def start(self):
+        if self.t0 == 0.0:
+            return self.points[0]
+        from .geom import point_at
+        return point_at(self, 0.0)
+
+    def end(self):
+        if self.t1 == 1.0:
+            return self.points[-1]
+        from .geom import point_at
+        return point_at(self, 1.0)
 
     def map_points(self, fn):
         return self.copy(points=[_pt(fn(p)) for p in self.points])
 
     def handles(self):
+        if self.trimmed():   # the trimmed ends are not defining points
+            return [(f"i:{k}", p) for k, p in enumerate(self.points)]
         return _point_list_handles(self.points)
 
     def with_handle(self, name, p):
@@ -227,15 +251,26 @@ class SplineSeg(Curve):
         return self.copy(points=pts)
 
     def to_gridgen(self):
-        return Spline(self.points)
+        from .geom import CurvePath
+        return CurvePath(self)
 
     def lua_class(self): return "Spline"
 
     def lua_args(self, name_of):
         return "points={" + ", ".join(name_of(p) for p in self.points) + "}"
 
+    def lua_expr(self, name_of):
+        spline = super().lua_expr(name_of)
+        if not self.trimmed():
+            return spline
+        return (f"SubRangedPath:new{{underlying_path={spline}, "
+                f"t0={float(self.t0)!r}, t1={float(self.t1)!r}}}")
+
     def geometry_dict(self):
-        return {"points": [list(p) for p in self.points]}
+        d = {"points": [list(p) for p in self.points]}
+        if self.trimmed():
+            d["t0"], d["t1"] = self.t0, self.t1
+        return d
 
 
 CURVE_TYPES = {cls.type: cls for cls in (LineSeg, ArcSeg, BezierSeg, SplineSeg)}
@@ -248,4 +283,7 @@ def curve_from_dict(d):
         geom = {k: _pt(d[k]) for k in ("p0", "p1", "centre") if k in d}
     else:
         geom = {"points": [_pt(p) for p in d["points"]]}
+        if cls is SplineSeg:
+            geom["t0"] = float(d.get("t0", 0.0))
+            geom["t1"] = float(d.get("t1", 1.0))
     return cls(**common, **geom)

@@ -135,7 +135,7 @@ def generate_geometry_lua(doc):
     path_lines = []
     for cid in used:
         c = doc.curves[cid]
-        path_lines.append(f"path_{_ident(cid)} = {c.lua_class()}:new{{{c.lua_args(points.name_of)}}}")
+        path_lines.append(f"path_{_ident(cid)} = {c.lua_expr(points.name_of)}")
 
     out = [HEADER.replace("{preview}", PREVIEW_DIR)]
     if any(b.smoothing for b in doc.blocks):

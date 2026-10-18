@@ -1,12 +1,13 @@
 """
 Select and move.
 
-  click curve           select it (Shift toggles)
-  drag a handle         move that point; curves sharing the endpoint follow
-  drag a curve          move the selection
-  drag empty space      box select: left-to-right = window (fully inside),
-                        right-to-left = crossing (touching)
-  right-click           context menu
+  click curve or point   select it (Ctrl toggles)
+  double-click           edit its dimensions (point, line, arc)
+  drag a handle          move that point; curves sharing the endpoint follow
+  drag a selection       move it
+  drag empty space       box select: left-to-right = window (fully inside),
+                         right-to-left = crossing (touching)
+  right-click            context menu
 """
 import math
 
@@ -20,6 +21,7 @@ from .base import Tool
 
 DRAG_START_PX = 3
 CONNECT_TOL_PX = 0.5
+EDITABLE = ("point", "line", "arc")
 
 
 class SelectTool(Tool):
@@ -37,29 +39,28 @@ class SelectTool(Tool):
         return self.drag is not None
 
     def anchor(self):
-        if self.drag is None:
-            return None
-        return self.drag.get("origin")
+        return self.drag.get("origin") if self.drag else None
 
     def snap_exclude(self):
         return self.drag["moving"] if self.drag else ()
 
+    def entity_kind(self, eid):
+        doc = self.model.doc
+        if eid in doc.points:
+            return "point"
+        return doc.curves[eid].type if eid in doc.curves else None
+
     # --- press -------------------------------------------------------------------
     def press(self, ev):
-        shift = bool(ev.modifiers & Qt.ShiftModifier)
+        add = bool(ev.modifiers & Qt.ControlModifier)       # Ctrl+click adds / removes
         doc = self.model.doc
         handle = self.canvas.pick_handle(ev.screen)
-        if handle is not None and not shift:
+        if handle is not None and not add:
             cid, name, point = handle
             partners = []
             if name in ("start", "end"):
-                tol = self.canvas.px(CONNECT_TOL_PX)
-                for other in doc.curves.values():
-                    if other.id == cid:
-                        continue
-                    for which, p in (("start", other.start()), ("end", other.end())):
-                        if math.hypot(p[0] - point[0], p[1] - point[1]) <= tol:
-                            partners.append((other.id, which))
+                partners = self.model.connected_ends(point, exclude={cid},
+                                                     tol=self.canvas.px(CONNECT_TOL_PX))
             moving = {cid} | {pid for pid, _ in partners}
             self.drag = {"kind": "handle", "cid": cid, "name": name, "origin": point,
                          "partners": partners, "moving": moving, "moved": False,
@@ -67,25 +68,36 @@ class SelectTool(Tool):
                          "originals": {i: doc.curves[i] for i in moving}}
             return
 
-        cid = self.canvas.pick_curve(ev.world)
-        if cid is not None:
+        eid = self.canvas.pick_entity(ev.screen, ev.world)
+        if eid is not None:
             sel = set(self.model.selection)
-            if shift:
-                self.model.set_selection(sel ^ {cid})
+            if add:
+                self.model.set_selection(sel ^ {eid})
                 return
-            if cid not in sel:
-                self.model.set_selection({cid})
-            grab, _ = geom.closest_point(doc.curves[cid], ev.world)
+            if eid not in sel:
+                self.model.set_selection({eid})
+            if eid in doc.points:
+                grab = doc.points[eid]
+            else:
+                grab, _ = geom.closest_point(doc.curves[eid], ev.world)
             moving = set(self.model.selection)
             self.drag = {"kind": "body", "origin": grab, "moving": moving, "moved": False,
                          "start_screen": ev.screen,
-                         "originals": {i: doc.curves[i] for i in moving}}
+                         "originals": {i: doc.curves[i] for i in moving if i in doc.curves},
+                         "point_originals": {i: doc.points[i] for i in moving if i in doc.points}}
             return
 
-        if not shift:
+        if not add:
             self.model.set_selection(set())
-        self.drag = {"kind": "box", "start": ev.world, "end": ev.world, "additive": shift,
+        self.drag = {"kind": "box", "start": ev.world, "end": ev.world, "additive": add,
                      "moving": (), "moved": False, "start_screen": ev.screen}
+
+    def double_click(self, ev):
+        self.drag = None
+        eid = self.canvas.pick_entity(ev.screen, ev.world)
+        if eid is not None and self.entity_kind(eid) in EDITABLE:
+            self.model.set_selection({eid})
+            self.canvas.editRequested.emit(eid)
 
     # --- move ----------------------------------------------------------------------
     def move(self, ev):
@@ -121,6 +133,8 @@ class SelectTool(Tool):
             dy = ev.point[1] - d["origin"][1]
             for i, orig in d["originals"].items():
                 doc.curves[i] = orig.map_points(lambda p: (p[0] + dx, p[1] + dy))
+            for i, (x, y) in d["point_originals"].items():
+                doc.points[i] = (x + dx, y + dy)
             self.model.notify()
         else:
             d["end"] = ev.world
@@ -155,15 +169,30 @@ class SelectTool(Tool):
 
     # --- context menu -------------------------------------------------------------
     def right_click(self, ev):
-        cid = self.canvas.pick_curve(ev.world)
-        if cid is not None and cid not in self.model.selection:
-            self.model.set_selection({cid})
+        eid = self.canvas.pick_entity(ev.screen, ev.world)
+        if eid is not None and eid not in self.model.selection:
+            self.model.set_selection({eid})
         if not self.model.selection:
             return
         menu = QMenu(self.canvas)
-        menu.addAction("Toggle reference (dashed)", self.model.toggle_reference)
+        sel = self.model.selection
+        if len(sel) == 1:
+            (only,) = sel
+            if self.entity_kind(only) in EDITABLE:
+                menu.addAction("Edit dimensions...", lambda: self.canvas.editRequested.emit(only))
+        curves = sel & set(self.model.doc.curves)
+        if len(curves) >= 2:
+            menu.addAction("Merge", lambda: self._merge(curves))
+        if curves:
+            menu.addAction("Toggle reference (dashed)", self.model.toggle_reference)
         menu.addAction("Delete", self.model.delete_selection)
         menu.popup(self.canvas.mapToGlobal(ev.screen.toPoint()))
+
+    def _merge(self, ids):
+        _, joins = self.model.merge(ids)
+        self.canvas.message.emit(f"Merged {len(ids)} curves into {len(ids) - joins}." if joins else
+                                 "Nothing to merge: pieces must share an end and be collinear lines, "
+                                 "arcs of one circle (under 180 degrees in total) or parts of one spline.")
 
     # --- painting ----------------------------------------------------------------
     def paint_overlay(self, painter):
@@ -185,5 +214,5 @@ class SelectTool(Tool):
         return ""
 
     def hint(self):
-        return ("Click to select (Shift adds), drag points or curves to edit, drag on empty space to box select "
-                "(left-to-right: inside, right-to-left: crossing). Right-click for options.")
+        return ("Click to select (Ctrl adds), double-click to edit dimensions, drag points or curves to edit, "
+                "drag on empty space to box select (left-to-right: inside, right-to-left: crossing).")

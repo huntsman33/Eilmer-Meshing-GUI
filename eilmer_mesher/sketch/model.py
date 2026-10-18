@@ -4,6 +4,7 @@ Qt-side owner of the Document: undo/redo, selection and change notification.
 Every edit is recorded as a before/after snapshot of the whole document. Sketch
 documents are small, so this keeps undo simple and exact.
 """
+import math
 from contextlib import contextmanager
 
 from PySide6.QtCore import QObject, Signal
@@ -85,8 +86,11 @@ class SketchModel(QObject):
         self._prune_selection()
         self.notify()
 
+    def entity_ids(self):
+        return set(self.doc.curves) | set(self.doc.points)
+
     def _prune_selection(self):
-        alive = self.selection & set(self.doc.curves)
+        alive = self.selection & self.entity_ids()
         if alive != self.selection:
             self.selection = alive
             self.selectionChanged.emit()
@@ -101,6 +105,113 @@ class SketchModel(QObject):
                 doc.add_curve(c)
                 ids.append(c.id)
         return ids
+
+    def add_point(self, p, text="Point"):
+        with self.edit(text) as doc:
+            pid = doc.new_id("pt")
+            doc.add_point(pid, p)
+        return pid
+
+    def connected_ends(self, point, exclude=(), tol=None):
+        """(curve id, "start"/"end") of curve ends at point, excluding curves in exclude."""
+        if tol is None:
+            tol = 1e-9 * max(1.0, abs(point[0]), abs(point[1]))
+        out = []
+        for c in self.doc.curves.values():
+            if c.id in exclude:
+                continue
+            for which, q in (("start", c.start()), ("end", c.end())):
+                if which in dict(c.handles()) and math.dist(q, point) <= tol:
+                    out.append((c.id, which))
+        return out
+
+    # --- dimension edits (double-click dialogs) -------------------------------------
+    @staticmethod
+    def _move_ends(doc, partners, new_point):
+        """Move the listed (curve id, "start"/"end") curve ends to new_point."""
+        for cid, which in partners:
+            moved = doc.curves[cid].with_handle(which, new_point)
+            if moved is not None:
+                doc.curves[cid] = moved
+
+    def set_point(self, pid, p):
+        with self.edit("Edit point") as doc:
+            doc.points[pid] = (float(p[0]), float(p[1]))
+
+    def set_line(self, cid, length, angle_deg):
+        """Keep the start, put the end at length along angle_deg; connected curves follow."""
+        if length <= 0:
+            raise ValueError("length must be positive")
+        c = self.doc.curves[cid]
+        a = math.radians(angle_deg)
+        end = (c.p0[0] + length*math.cos(a), c.p0[1] + length*math.sin(a))
+        old_end = c.p1
+        partners = self.connected_ends(old_end, exclude={cid})
+        with self.edit("Edit line") as doc:
+            doc.curves[cid] = c.copy(p1=end)
+            self._move_ends(doc, partners, end)
+
+    def set_arc(self, cid, radius, sweep_deg):
+        """Keep the centre and start direction; set radius and sweep (sign keeps the direction)."""
+        from ..model import geom
+        if radius <= 0 or not 0 < abs(sweep_deg) < 360:
+            raise ValueError("radius must be positive and the sweep between 0 and 360 degrees")
+        c = self.doc.curves[cid]
+        centre, _, a0, sweep = geom.arc_geometry(c.p0, c.p1, c.centre)
+        new_sweep = math.copysign(math.radians(abs(sweep_deg)), sweep)
+        pieces = geom.arc_pieces(centre, radius, a0, new_sweep)
+        old_start, old_end = c.p0, c.p1
+        new_start, new_end = pieces[0][0], pieces[-1][1]
+        at_start = self.connected_ends(old_start, {cid})
+        at_end = self.connected_ends(old_end, {cid})
+        with self.edit("Edit arc") as doc:
+            if len(pieces) > 1:            # the face would now need several curves
+                doc.remove_blocks_using([cid])
+            first = pieces[0]
+            doc.curves[cid] = c.copy(p0=first[0], p1=first[1], centre=first[2])
+            for p0, p1, cen in pieces[1:]:
+                doc.add_curve(c.copy(id=doc.new_id("c"), p0=p0, p1=p1, centre=cen))
+            self._move_ends(doc, at_start, new_start)
+            self._move_ends(doc, at_end, new_end)
+
+    # --- merge and mirror --------------------------------------------------------------
+    def merge(self, ids):
+        """Join connected collinear lines, concentric arcs and pieces of one spline.
+        Returns (surviving ids, number of joins)."""
+        from ..model.operations import merge_curves
+        ids = set(ids)
+        curves = [c for cid, c in self.doc.curves.items() if cid in ids]   # document order
+        result, removed = merge_curves(curves)
+        if not removed:
+            return [c.id for c in curves], 0
+        with self.edit("Merge") as doc:
+            doc.remove_blocks_using([c.id for c in curves])
+            doc.remove_curves(removed)
+            for c in result:
+                doc.curves[c.id] = c
+        survivors = [c.id for c in result]
+        self.set_selection(survivors)
+        return survivors, len(removed)
+
+    def mirror(self, ids, a, b):
+        """Mirrored copies of curves and points across the line through a and b; returns new ids."""
+        from ..model.operations import lies_on, mirror_curve, reflect
+        tol = 1e-9 * max(1.0, abs(a[0]), abs(a[1]), abs(b[0]), abs(b[1]))
+        new_ids = []
+        with self.edit("Mirror") as doc:
+            for i in ids:
+                if i in doc.curves:
+                    c = doc.curves[i]
+                    if lies_on(c, a, b, tol):
+                        continue                  # its mirror image is itself
+                    m = mirror_curve(c, a, b).copy(id=doc.new_id("c"))
+                    doc.add_curve(m)
+                    new_ids.append(m.id)
+                elif i in doc.points:
+                    q = reflect(doc.points[i], a, b)
+                    if math.dist(q, doc.points[i]) > tol:
+                        new_ids.append(doc.add_point(doc.new_id("pt"), q))
+        return new_ids
 
     def delete_selection(self):
         if not self.selection:
@@ -121,7 +232,7 @@ class SketchModel(QObject):
                     c.bc_tag = ""
 
     def set_selection(self, ids):
-        ids = set(ids) & set(self.doc.curves)
+        ids = set(ids) & self.entity_ids()
         if ids != self.selection:
             self.selection = ids
             self.selectionChanged.emit()

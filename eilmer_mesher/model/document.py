@@ -73,6 +73,7 @@ class Document:
 
     def __init__(self):
         self.curves = {}      # id -> Curve, insertion ordered
+        self.points = {}      # id -> (x, y): construction points (snap targets, not geometry)
         self.blocks = []      # list[Block]
         self.bcs = {}         # tag -> {"class": "InFlowBC_Supersonic", "args": "flowState=inflow"}
         self._counters = {}
@@ -80,7 +81,7 @@ class Document:
     # --- construction -----------------------------------------------------
     def new_id(self, prefix):
         n = self._counters.get(prefix, 0)
-        existing = set(self.curves) | {b.id for b in self.blocks}
+        existing = set(self.curves) | set(self.points) | {b.id for b in self.blocks}
         while True:
             n += 1
             cid = f"{prefix}{n}"
@@ -98,15 +99,26 @@ class Document:
         self.blocks.append(block)
         return block
 
+    def add_point(self, pid, p):
+        if pid in self.points or pid in self.curves:
+            raise ValueError(f"duplicate id {pid}")
+        self.points[pid] = (float(p[0]), float(p[1]))
+        return pid
+
+    def remove_blocks_using(self, ids):
+        """Remove blocks with a face on any of the given curves; returns their ids."""
+        ids = set(ids)
+        dead = [b for b in self.blocks if any(r.id in ids for f in FACES for r in b.sides[f])]
+        self.blocks = [b for b in self.blocks if b not in dead]
+        return [b.id for b in dead]
+
     def remove_curves(self, ids):
-        """Remove curves and any blocks that reference them; returns the removed block ids."""
+        """Remove curves/points and any blocks that reference them; returns the removed block ids."""
         ids = set(ids)
         for cid in ids:
             self.curves.pop(cid, None)
-        dead = [b for b in self.blocks
-                if any(r.id in ids for f in FACES for r in b.sides[f])]
-        self.blocks = [b for b in self.blocks if b not in dead]
-        return [b.id for b in dead]
+            self.points.pop(cid, None)
+        return self.remove_blocks_using(ids)
 
     # --- block geometry checks --------------------------------------------
     def ref_endpoints(self, ref):
@@ -155,6 +167,7 @@ class Document:
         return {
             "version": self.VERSION,
             "curves": [c.to_dict() for c in self.curves.values()],
+            "points": [{"id": k, "x": x, "y": y} for k, (x, y) in self.points.items()],
             "blocks": [b.to_dict() for b in self.blocks],
             "bcs": self.bcs,
         }
@@ -164,6 +177,8 @@ class Document:
         doc = cls()
         for cd in d.get("curves", []):
             doc.add_curve(curve_from_dict(cd))
+        for pd in d.get("points", []):
+            doc.add_point(pd["id"], (pd["x"], pd["y"]))
         for bd in d.get("blocks", []):
             doc.add_block(Block.from_dict(bd))
         doc.bcs = dict(d.get("bcs", {}))

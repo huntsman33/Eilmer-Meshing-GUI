@@ -16,8 +16,11 @@ from PySide6.QtWidgets import QWidget
 
 from ..model import geom
 from ..model.entities import REFERENCE
+from ..model.topology import Topology
+from ..units import Units
 from . import snapping
 from .snapping import Snap, Snapper, nice_step
+from .typed_input import parse_point, single_number
 
 PICK_PX = 8
 SNAP_PX = 10
@@ -35,7 +38,10 @@ COLORS = {
     "preview": "#1a9fd9",
     "snap": "#d43f3a",
     "handle": "#ffffff",
+    "trim": "#d43f3a",
 }
+REGION_FILLS = ["#1a9fd9", "#2e9d57", "#f28c28", "#8e5bd0", "#d43f3a", "#c9a227"]
+POINT_PX = 5
 
 
 def make_pen(color, width=1.5, dashed=False):
@@ -68,6 +74,9 @@ class SketchCanvas(QWidget):
     typedText = Signal(str)               # printable key typed while the canvas has focus
     escapeIdle = Signal()                 # Esc with nothing to cancel
     toolStateChanged = Signal()           # tool prompt/hint may have changed
+    clearTyped = Signal()                 # the tool used the typed value; clear the input box
+    editRequested = Signal(str)           # double-click on an entity: open its edit dialog
+    message = Signal(str)                 # short status message for the user
 
     def __init__(self, model, parent=None):
         super().__init__(parent)
@@ -83,6 +92,11 @@ class SketchCanvas(QWidget):
         self._pan = None
         self._pressed = set()
         self._path_cache = {}
+        self._topology = (None, None)
+        self.units = Units()
+        self.show_regions = False
+        self.hold_keys = {"horizontal": Qt.Key_H, "vertical": Qt.Key_V}
+        self.held = set()
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMinimumSize(400, 300)
@@ -124,7 +138,25 @@ class SketchCanvas(QWidget):
         return n / self.scale
 
     def grid_step(self):
-        return nice_step(self.px(14))
+        """Minor grid spacing in metres: a round number in the display units."""
+        f = self.units.factor
+        return nice_step(self.px(14) / f) * f
+
+    def topology(self):
+        rev, topo = self._topology
+        if rev != self.model.revision:
+            topo = Topology(self.model.doc)
+            self._topology = (self.model.revision, topo)
+        return topo
+
+    # --- typed input (display units in, metres out) -----------------------------
+    def parse_point(self, text, anchor=None):
+        a = self.units.point_to_display(anchor) if anchor is not None else None
+        return self.units.point_from_display(parse_point(text, a))
+
+    def parse_length(self, text):
+        v = single_number(text)
+        return None if v is None else self.units.from_display(v)
 
     def zoom_at(self, factor, screen_pos=None):
         if screen_pos is None:
@@ -171,10 +203,24 @@ class SketchCanvas(QWidget):
                 best = (cid, d)
         return best[0] if best else None
 
+    def pick_point(self, screen, among=None):
+        """Construction point under the cursor, or None."""
+        best = None
+        ids = among if among is not None else self.model.doc.points.keys()
+        for pid in ids:
+            q = self.to_screen(self.model.doc.points[pid])
+            d = math.hypot(q.x() - screen.x(), q.y() - screen.y())
+            if d <= POINT_PX + 3 and (best is None or d < best[0]):
+                best = (d, pid)
+        return best[1] if best else None
+
+    def pick_entity(self, screen, world):
+        return self.pick_point(screen) or self.pick_curve(world)
+
     def pick_handle(self, screen):
         """(curve_id, handle name, point) of a selected curve's handle under the cursor."""
         best = None
-        for cid in self.model.selection:
+        for cid in self.model.selection & set(self.model.doc.curves):
             for name, p in self.model.doc.curves[cid].handles():
                 q = self.to_screen(p)
                 d = math.hypot(q.x() - screen.x(), q.y() - screen.y())
@@ -195,6 +241,8 @@ class SketchCanvas(QWidget):
                 out.append(cid)
             elif crossing and (inside.any() or geom.polyline_intersections(P, box)):
                 out.append(cid)
+        out.extend(pid for pid, (x, y) in self.model.doc.points.items()
+                   if x0 <= x <= x1 and y0 <= y <= y1)
         return out
 
     # --- paths -------------------------------------------------------------------
@@ -238,11 +286,19 @@ class SketchCanvas(QWidget):
     # --- painting ----------------------------------------------------------------
     def paintEvent(self, event):
         p = QPainter(self)
+        try:
+            self._paint(p)
+        finally:
+            p.end()          # an exception must not leave the painter active (Qt aborts)
+
+    def _paint(self, p):
         p.setRenderHint(QPainter.Antialiasing)
         p.fillRect(self.rect(), QColor(COLORS["background"]))
         self._paint_grid(p)
 
         p.setTransform(self.transform())
+        if self.show_regions:
+            self._paint_regions(p)
         sel = self.model.selection
         for cid, c in self.model.doc.curves.items():
             if cid in sel:
@@ -257,11 +313,11 @@ class SketchCanvas(QWidget):
             self.tool.paint(p)
 
         p.resetTransform()
+        self._paint_points(p)
         self._paint_handles(p)
         if self.tool is not None:
             self.tool.paint_overlay(p)
         self._paint_snap(p)
-        p.end()
 
     def _paint_grid(self, p):
         step = self.grid_step()
@@ -289,13 +345,41 @@ class SketchCanvas(QWidget):
         p.drawLine(QPointF(origin.x(), 0), QPointF(origin.x(), self.height()))
         p.drawLine(QPointF(0, origin.y()), QPointF(self.width(), origin.y()))
 
+    def _paint_regions(self, p):
+        p.setPen(Qt.NoPen)
+        for k, r in enumerate(self.topology().regions):
+            path = QPainterPath()
+            path.setFillRule(Qt.OddEvenFill)
+            for poly in [r.polygon] + list(r.hole_polygons):
+                path.addPolygon(QPolygonF([QPointF(x, y) for x, y in poly]))
+                path.closeSubpath()
+            color = QColor(REGION_FILLS[k % len(REGION_FILLS)])
+            color.setAlpha(40)
+            p.setBrush(color)
+            p.drawPath(path)
+        p.setBrush(Qt.NoBrush)
+
+    def _paint_points(self, p):
+        r = POINT_PX
+        for pid, pt in self.model.doc.points.items():
+            if pid in self.model.selection:
+                color, width = COLORS["selected"], 2.2
+            elif pid == self.hover_id:
+                color, width = COLORS["hover"], 2.2
+            else:
+                color, width = COLORS["geometry"], 1.5
+            p.setPen(make_pen(color, width))
+            q = self.to_screen(pt)
+            p.drawLine(q + QPointF(-r, 0), q + QPointF(r, 0))
+            p.drawLine(q + QPointF(0, -r), q + QPointF(0, r))
+
     def _paint_handles(self, p):
-        if not self.model.selection:
+        if not self.model.selection & set(self.model.doc.curves):
             return
         p.setPen(make_pen(COLORS["selected"], 1.2))
         p.setBrush(QColor(COLORS["handle"]))
         h = HANDLE_PX
-        for cid in self.model.selection:
+        for cid in self.model.selection & set(self.model.doc.curves):
             for name, pt in self.model.doc.curves[cid].handles():
                 q = self.to_screen(pt)
                 if name == "mid":
@@ -316,7 +400,7 @@ class SketchCanvas(QWidget):
         p.setPen(make_pen(COLORS["snap"], 1.6))
         p.setBrush(Qt.NoBrush)
         kind = s.kind
-        if kind == snapping.ENDPOINT:
+        if kind in (snapping.ENDPOINT, snapping.POINT):
             p.drawRect(QRectF(q.x() - r, q.y() - r, 2*r, 2*r))
         elif kind == snapping.INTERSECTION:
             p.drawLine(q + QPointF(-r, -r), q + QPointF(r, r))
@@ -350,12 +434,33 @@ class SketchCanvas(QWidget):
         world = self.to_world(pos)
         tool = self.tool
         if tool is not None and tool.snaps:
-            snap = self.snap(world, tool.anchor(), tool.snap_exclude())
+            anchor = tool.anchor()
+            snap = self.snap(world, anchor, tool.snap_exclude())
+            snap = self._apply_hold(snap, anchor)
         else:
             snap = Snap(world)
         self.last_snap = snap
         self.last_screen = pos
         return ToolEvent(world, snap, pos, button, ev.modifiers(), Qt.LeftButton in self._pressed)
+
+    def _apply_hold(self, snap, anchor):
+        """Held H/V keys force the point level with or plumb below the anchor."""
+        if anchor is None:
+            return snap
+        x, y = snap.point
+        if self.hold_keys["horizontal"] in self.held:
+            return Snap((x, anchor[1]), snapping.HORIZONTAL, snap.curve_id)
+        if self.hold_keys["vertical"] in self.held:
+            return Snap((anchor[0], y), snapping.VERTICAL, snap.curve_id)
+        return snap
+
+    def mouseDoubleClickEvent(self, ev):
+        if ev.button() != Qt.LeftButton:
+            return
+        te = self._tool_event(ev, ev.button())
+        if self.tool is not None:
+            self.tool.double_click(te)
+        self.update()
 
     def mousePressEvent(self, ev):
         self.setFocus()
@@ -385,7 +490,7 @@ class SketchCanvas(QWidget):
         if self.tool is not None:
             self.tool.move(te)
             if self.tool.hover_curves and not te.dragging:
-                self.hover_id = self.pick_curve(te.world)
+                self.hover_id = self.pick_entity(te.screen, te.world)
             else:
                 self.hover_id = None
         self.cursorMoved.emit(te.snap)
@@ -415,14 +520,20 @@ class SketchCanvas(QWidget):
 
     def event(self, ev):
         # Let the active tool claim keys that are also global tool shortcuts.
-        if ev.type() == QEvent.ShortcutOverride and self.tool is not None \
-                and self.tool.claims_key(ev.key()):
+        if ev.type() == QEvent.ShortcutOverride and (
+                ev.key() in self.hold_keys.values()
+                or (self.tool is not None and self.tool.claims_key(ev.key()))):
             ev.accept()
             return True
         return super().event(ev)
 
     def keyPressEvent(self, ev):
         key = ev.key()
+        if key in self.hold_keys.values() and not (ev.modifiers() & Qt.ControlModifier):
+            if not ev.isAutoRepeat():
+                self.held.add(key)
+                self._refresh_cursor()
+            return
         if self.tool is not None and self.tool.key(key):
             self.toolStateChanged.emit()
             self.update()
@@ -447,6 +558,39 @@ class SketchCanvas(QWidget):
             self.typedText.emit(text)
             return
         super().keyPressEvent(ev)
+
+    def keyReleaseEvent(self, ev):
+        if ev.key() in self.held and not ev.isAutoRepeat():
+            self.held.discard(ev.key())
+            self._refresh_cursor()
+            return
+        super().keyReleaseEvent(ev)
+
+    def focusOutEvent(self, ev):
+        self.held.clear()        # never leave a constraint stuck on
+        super().focusOutEvent(ev)
+
+    def _refresh_cursor(self):
+        """Re-run the move handling at the last cursor position (e.g. a hold key changed)."""
+        if self.last_screen is None or self.tool is None:
+            self.update()
+            return
+        world = self.to_world(self.last_screen)
+        anchor = self.tool.anchor() if self.tool.snaps else None
+        snap = self.snap(world, anchor, self.tool.snap_exclude()) if self.tool.snaps else Snap(world)
+        snap = self._apply_hold(snap, anchor)
+        self.last_snap = snap
+        self.tool.move(ToolEvent(world, snap, self.last_screen, Qt.NoButton, Qt.NoModifier,
+                                 Qt.LeftButton in self._pressed))
+        self.cursorMoved.emit(snap)
+        self.update()
+
+    def preview_text(self, text):
+        """Live typed value from the input box (e.g. a length lock while drawing)."""
+        if self.tool is not None:
+            self.tool.preview_text(text)
+            self.toolStateChanged.emit()
+            self.update()
 
     # --- typed input --------------------------------------------------------------
     def submit_text(self, text):

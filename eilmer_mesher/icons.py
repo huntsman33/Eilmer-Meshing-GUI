@@ -65,6 +65,38 @@ def _draw(name, p):
         path.cubicTo(QPointF(20, 26), QPointF(25, 26), QPointF(28, 10))
         p.drawPath(path)
         _dots(p, [(4, 22), (17, 16), (28, 10)])
+    elif name == "point":
+        p.setPen(_pen(INK, 2.4))
+        p.drawLine(QPointF(16, 6), QPointF(16, 26))
+        p.drawLine(QPointF(6, 16), QPointF(26, 16))
+    elif name == "trim":
+        p.drawLine(QPointF(4, 22), QPointF(28, 22))
+        p.drawLine(QPointF(10, 6), QPointF(10, 28))
+        p.drawLine(QPointF(22, 6), QPointF(22, 28))
+        p.setPen(_pen("#d43f3a", 3.0))
+        p.drawLine(QPointF(11.5, 22), QPointF(20.5, 22))
+    elif name == "merge":
+        p.drawLine(QPointF(4, 16), QPointF(13, 16))
+        p.drawLine(QPointF(19, 16), QPointF(28, 16))
+        p.setPen(_pen(ACCENT, 2.0))
+        p.drawPolyline(QPolygonF([QPointF(11, 10), QPointF(16, 16), QPointF(11, 22)]))
+        p.drawPolyline(QPolygonF([QPointF(21, 10), QPointF(16, 16), QPointF(21, 22)]))
+    elif name == "mirror":
+        p.setPen(_pen(REF, 1.6, dashed=True))
+        p.drawLine(QPointF(16, 3), QPointF(16, 29))
+        p.setPen(_pen())
+        p.drawPolyline(QPolygonF([QPointF(12, 8), QPointF(5, 24), QPointF(12, 24)]))
+        p.setPen(_pen(ACCENT, 2.0))
+        p.drawPolyline(QPolygonF([QPointF(20, 8), QPointF(27, 24), QPointF(20, 24)]))
+    elif name == "regions":
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(ACCENT).lighter(150))
+        p.drawRect(QRectF(5, 7, 11, 18))
+        p.setBrush(QColor("#2e9d57").lighter(150))
+        p.drawRect(QRectF(16, 7, 11, 18))
+        p.setBrush(Qt.NoBrush)
+        p.setPen(_pen())
+        p.drawRect(QRectF(5, 7, 22, 18))
     elif name == "reference":
         p.setPen(_pen(REF, 2.0, dashed=True))
         p.drawLine(QPointF(5, 27), QPointF(27, 5))
