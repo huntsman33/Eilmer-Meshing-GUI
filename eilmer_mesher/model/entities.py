@@ -7,7 +7,7 @@ A curve's kind is either "geometry" (solid line, may carry a BC tag) or
 "reference" (dashed line, an internal block interface).
 """
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from gridgen.path import Line, Arc, Bezier, Spline
 
@@ -57,6 +57,45 @@ class Curve:
         path = self.to_gridgen()
         return [(p.x, p.y) for p in (path(i/(n-1)) for i in range(n))]
 
+    def copy(self, **changes):
+        return replace(self, **changes)
+
+    def map_points(self, fn):
+        """Copy with fn applied to every defining point (e.g. a translation)."""
+        raise NotImplementedError
+
+    def handles(self):
+        """Editable points as (name, point): "start", "end", "mid" (arc) or "i:<k>"."""
+        raise NotImplementedError
+
+    def with_handle(self, name, p):
+        """Copy with one handle moved, or None if that would make the curve invalid."""
+        raise NotImplementedError
+
+    def geom_key(self):
+        """Hashable description of the shape, used to cache samples and paths."""
+        def freeze(v):
+            return tuple(freeze(x) for x in v) if isinstance(v, (list, tuple)) else v
+        return (self.type, freeze(list(self.geometry_dict().values())))
+
+
+def _point_list_handles(points):
+    out = [("start", points[0])]
+    out += [(f"i:{k}", p) for k, p in enumerate(points[1:-1], start=1)]
+    out.append(("end", points[-1]))
+    return out
+
+
+def _point_list_with_handle(points, name, p):
+    pts = list(points)
+    if name == "start":
+        pts[0] = _pt(p)
+    elif name == "end":
+        pts[-1] = _pt(p)
+    else:
+        pts[int(name.split(":")[1])] = _pt(p)
+    return pts
+
 
 @dataclass
 class LineSeg(Curve):
@@ -67,6 +106,16 @@ class LineSeg(Curve):
 
     def start(self): return self.p0
     def end(self): return self.p1
+
+    def map_points(self, fn):
+        return self.copy(p0=_pt(fn(self.p0)), p1=_pt(fn(self.p1)))
+
+    def handles(self):
+        return [("start", self.p0), ("end", self.p1)]
+
+    def with_handle(self, name, p):
+        new = self.copy(**{"p0" if name == "start" else "p1": _pt(p)})
+        return None if new.p0 == new.p1 else new
 
     def to_gridgen(self):
         return Line(self.p0, self.p1)
@@ -95,6 +144,24 @@ class ArcSeg(Curve):
     def radius(self):
         return math.hypot(self.p0[0]-self.centre[0], self.p0[1]-self.centre[1])
 
+    def map_points(self, fn):
+        return self.copy(p0=_pt(fn(self.p0)), p1=_pt(fn(self.p1)), centre=_pt(fn(self.centre)))
+
+    def handles(self):
+        from .geom import arc_point
+        return [("start", self.p0), ("mid", arc_point(self, 0.5)), ("end", self.p1)]
+
+    def with_handle(self, name, p):
+        """Moving any handle refits the arc through start, mid and end (three-point arc)."""
+        from .geom import arc_point, arcs_through_3_points
+        pts = {"start": self.p0, "mid": arc_point(self, 0.5), "end": self.p1}
+        pts[name] = _pt(p)
+        pieces = arcs_through_3_points(pts["start"], pts["mid"], pts["end"])
+        if pieces is None or len(pieces) != 1:
+            return None
+        p0, p1, c = pieces[0]
+        return self.copy(p0=p0, p1=p1, centre=c)
+
     def to_gridgen(self):
         return Arc(self.p0, self.p1, self.centre)
 
@@ -115,6 +182,15 @@ class BezierSeg(Curve):
 
     def start(self): return self.points[0]
     def end(self): return self.points[-1]
+
+    def map_points(self, fn):
+        return self.copy(points=[_pt(fn(p)) for p in self.points])
+
+    def handles(self):
+        return _point_list_handles(self.points)
+
+    def with_handle(self, name, p):
+        return self.copy(points=_point_list_with_handle(self.points, name, p))
 
     def to_gridgen(self):
         return Bezier(self.points)
@@ -137,6 +213,18 @@ class SplineSeg(Curve):
 
     def start(self): return self.points[0]
     def end(self): return self.points[-1]
+
+    def map_points(self, fn):
+        return self.copy(points=[_pt(fn(p)) for p in self.points])
+
+    def handles(self):
+        return _point_list_handles(self.points)
+
+    def with_handle(self, name, p):
+        pts = _point_list_with_handle(self.points, name, p)
+        if any(pts[k] == pts[k+1] for k in range(len(pts)-1)):
+            return None     # coincident neighbours break the spline
+        return self.copy(points=pts)
 
     def to_gridgen(self):
         return Spline(self.points)

@@ -98,6 +98,16 @@ class Document:
         self.blocks.append(block)
         return block
 
+    def remove_curves(self, ids):
+        """Remove curves and any blocks that reference them; returns the removed block ids."""
+        ids = set(ids)
+        for cid in ids:
+            self.curves.pop(cid, None)
+        dead = [b for b in self.blocks
+                if any(r.id in ids for f in FACES for r in b.sides[f])]
+        self.blocks = [b for b in self.blocks if b not in dead]
+        return [b.id for b in dead]
+
     # --- block geometry checks --------------------------------------------
     def ref_endpoints(self, ref):
         c = self.curves[ref.id]
