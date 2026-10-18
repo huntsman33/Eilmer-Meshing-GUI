@@ -40,6 +40,9 @@ COLORS = {
     "handle": "#ffffff",
     "trim": "#d43f3a",
     "dimension": "#2a6fb0",
+    "block": "#1a9fd9",
+    "block_error": "#d43f3a",
+    "mesh": "#3d5a73",
 }
 REGION_FILLS = ["#1a9fd9", "#2e9d57", "#f28c28", "#8e5bd0", "#d43f3a", "#c9a227"]
 POINT_PX = 5
@@ -78,6 +81,8 @@ class SketchCanvas(QWidget):
     clearTyped = Signal()                 # the tool used the typed value; clear the input box
     editRequested = Signal(str)           # double-click on an entity: open its edit dialog
     message = Signal(str)                 # short status message for the user
+    edgeRequested = Signal(str, str)      # (block id, face): open the edge cells dialog
+    splitRequested = Signal(object)       # world point of a region to split N x M
 
     def __init__(self, model, parent=None):
         super().__init__(parent)
@@ -94,6 +99,11 @@ class SketchCanvas(QWidget):
         self._pressed = set()
         self._path_cache = {}
         self._topology = (None, None)
+        self._resolution = (None, None)
+        self.mesh = None                  # live mesh (mesh.live.Mesh) to draw
+        self._mesh_path = (None, None)
+        self.show_blocks = True
+        self.show_mesh = True
         self.units = Units()
         self.show_regions = False
         self.hold_keys = {"horizontal": Qt.Key_H, "vertical": Qt.Key_V}
@@ -149,6 +159,18 @@ class SketchCanvas(QWidget):
             topo = Topology(self.model.doc)
             self._topology = (self.model.revision, topo)
         return topo
+
+    def resolution(self):
+        from ..model import blocking
+        rev, res = self._resolution
+        if rev != self.model.revision:
+            res = blocking.resolve(self.model.doc, self.topology())
+            self._resolution = (self.model.revision, res)
+        return res
+
+    def set_mesh(self, mesh):
+        self.mesh = mesh
+        self.update()
 
     # --- typed input (display units in, metres out) -----------------------------
     def parse_point(self, text, anchor=None):
@@ -385,6 +407,10 @@ class SketchCanvas(QWidget):
         p.setTransform(self.transform())
         if self.show_regions:
             self._paint_regions(p)
+        if self.show_blocks and self.model.doc.blocks:
+            self._paint_block_fills(p)
+        if self.show_mesh and self.mesh is not None:
+            self._paint_mesh(p)
         sel = self.model.selection
         for cid, c in self.model.doc.curves.items():
             if cid in sel:
@@ -399,6 +425,8 @@ class SketchCanvas(QWidget):
             self.tool.paint(p)
 
         p.resetTransform()
+        if self.show_blocks and self.model.doc.blocks:
+            self._paint_block_labels(p)
         self._paint_dimensions(p)
         self._paint_points(p)
         self._paint_handles(p)
@@ -445,6 +473,61 @@ class SketchCanvas(QWidget):
             p.setBrush(color)
             p.drawPath(path)
         p.setBrush(Qt.NoBrush)
+
+    def _paint_block_fills(self, p):
+        res = self.resolution()
+        p.setPen(Qt.NoPen)
+        for bid, poly in res.polygons.items():
+            color = QColor(COLORS["block_error"] if bid in res.errors else COLORS["block"])
+            color.setAlpha(55 if bid in res.errors else 28)
+            p.setBrush(color)
+            p.drawPolygon(QPolygonF([QPointF(x, y) for x, y in poly]))
+        p.setBrush(Qt.NoBrush)
+
+    def _paint_mesh(self, p):
+        key, path = self._mesh_path
+        if key is not self.mesh:
+            path = QPainterPath()
+            for _, g in self.mesh.grids:
+                for line in list(g[:, :, :2]) + list(g[:, :, :2].transpose(1, 0, 2)):
+                    path.moveTo(*line[0])
+                    for x, y in line[1:]:
+                        path.lineTo(x, y)
+            self._mesh_path = (self.mesh, path)
+        color = QColor(COLORS["mesh"])
+        color.setAlpha(150 if self.mesh.source == "eilmer" else 90)
+        pen = make_pen(color.name(QColor.HexArgb), 0.8)
+        pen.setColor(color)
+        p.setPen(pen)
+        p.drawPath(path)
+
+    def _paint_block_labels(self, p):
+        from shapely.geometry import Polygon
+        res = self.resolution()
+        blocks = res.by_id()
+        for bid, poly in res.polygons.items():
+            if len(poly) < 3:
+                continue
+            c = Polygon(poly).representative_point()
+            if bid in res.errors:
+                text, color = f"{bid}: needs attention", COLORS["block_error"]
+            else:
+                b = blocks[bid]
+                text, color = f"{bid}  {b.niv - 1} x {b.njv - 1}", COLORS["mesh"]
+                if bid in res.warnings:
+                    text += "  (!)"
+                    color = COLORS["block_error"]
+            box = QFontMetricsF(self.font()).boundingRect(text)
+            rect = QRectF(0, 0, box.width() + 8, box.height() + 4)
+            rect.moveCenter(self.to_screen((c.x, c.y)))
+            bg = QColor(COLORS["background"])
+            bg.setAlpha(200)
+            p.setPen(Qt.NoPen)
+            p.setBrush(bg)
+            p.drawRect(rect)
+            p.setBrush(Qt.NoBrush)
+            p.setPen(QColor(color))
+            p.drawText(rect, Qt.AlignCenter, text)
 
     def _paint_dimensions(self, p):
         for did, dim in self.model.doc.dimensions.items():

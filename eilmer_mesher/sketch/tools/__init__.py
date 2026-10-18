@@ -1,3 +1,4 @@
+from .block import BlockTool
 from .dimension import DimensionTool
 from .modify import MergeTool, MirrorTool, MoveTool
 from .draw import (ArcTool, BezierTool, CircleTool, LineTool, PointTool, ProfileTool, RectangleTool,
@@ -22,4 +23,5 @@ SKETCH_TOOLS = [
     (TrimTool, "Quick trim: delete a piece up to where it meets other curves"),
     (MergeTool, "Merge connected collinear lines, arcs of one circle or spline pieces"),
     (MirrorTool, "Mirror: pick objects, Enter, pick an axis line or the x / y axis, Enter"),
+    (BlockTool, "Block: click a region to block it; double-click an edge for its cells"),
 ]

@@ -8,6 +8,9 @@ from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMai
 
 from . import settings
 from .icons import icon
+from .mesh.live import LiveMesher
+from .model.document import BlockError
+from .sketch.block_dialogs import EdgeCellsDialog, SplitDialog
 from .model.document import Document
 from .settings import DEFAULT_HOLD_KEYS, DEFAULT_SHORTCUTS
 from .shortcuts_dialog import ShortcutsDialog
@@ -83,7 +86,7 @@ class InputBar(QWidget):
     def refresh(self):
         tool = self.canvas.tool
         self.prompt.setText(f"<b>{tool.label}</b>  {tool.prompt()}" if tool else "")
-        self.edit.setEnabled(bool(tool and tool.name not in ("select", "trim", "merge", "mirror")))
+        self.edit.setEnabled(bool(tool and tool.name not in ("select", "trim", "merge", "mirror", "block")))
         if tool is not None and tool.name == "move":
             self.edit.setPlaceholderText(f"type a move in {self.canvas.units.name}:  dx, dy    or  L<deg")
             return
@@ -110,11 +113,17 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self.hint_label = QLabel()
+        self.mesh_label = QLabel("No blocks")
         self.coord_label = QLabel()
         self.coord_label.setMinimumWidth(340)
         self.coord_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.statusBar().addWidget(self.hint_label, 1)
+        self.statusBar().addPermanentWidget(self.mesh_label)
         self.statusBar().addPermanentWidget(self.coord_label)
+
+        self.mesher = LiveMesher(self.model, self)
+        self.mesher.meshChanged.connect(self.canvas.set_mesh)
+        self.mesher.status.connect(self.mesh_label.setText)
 
         self._make_actions()
         self._make_menus_and_toolbars()
@@ -126,6 +135,8 @@ class MainWindow(QMainWindow):
         self.canvas.toolStateChanged.connect(self._refresh_tool_text)
         self.canvas.editRequested.connect(self.edit_entity)
         self.canvas.message.connect(lambda text: self.statusBar().showMessage(text, 6000))
+        self.canvas.edgeRequested.connect(self.edit_edge)
+        self.canvas.splitRequested.connect(self.split_region)
         self.model.undo_stack.cleanChanged.connect(self._update_title)
         self.model.changed.connect(self._update_title)
 
@@ -172,6 +183,12 @@ class MainWindow(QMainWindow):
         self.act_fit = A("view.fit", "Zoom to &fit", self.canvas.zoom_to_fit, "fit")
         self.act_regions = A("view.regions", "Show &regions", self._set_show_regions, "regions", checkable=True)
         self.act_shortcuts = A(None, "&Keyboard shortcuts...", self.edit_shortcuts)
+        self.act_block_all = A("block.all", "Block &all regions", self.block_all)
+        self.act_run_mesh = A("mesh.run", "&Run Eilmer now", lambda: self.mesher.run_now())
+        self.act_show_blocks = A("view.blocks", "Show &blocks", self._set_show_blocks, checkable=True)
+        self.act_show_blocks.setChecked(True)
+        self.act_show_mesh = A("view.mesh", "Show &mesh", self._set_show_mesh, checkable=True)
+        self.act_show_mesh.setChecked(True)
 
         self.tool_group = QActionGroup(self)
         self.tool_actions = {}
@@ -226,9 +243,16 @@ class MainWindow(QMainWindow):
         for act in self.snap_actions.values():
             snap_menu.addAction(act)
 
+        m = mb.addMenu("&Block")
+        m.addAction(self.tool_actions["block"])
+        m.addAction(self.act_block_all)
+        m.addAction(self.act_run_mesh)
+
         m = mb.addMenu("&View")
         m.addAction(self.act_fit)
         m.addAction(self.act_regions)
+        m.addAction(self.act_show_blocks)
+        m.addAction(self.act_show_mesh)
         units_menu = m.addMenu("&Units")
         for act in self.unit_actions.values():
             units_menu.addAction(act)
@@ -236,7 +260,9 @@ class MainWindow(QMainWindow):
         tb = self.addToolBar("Sketch")
         tb.setObjectName("sketch-toolbar")
         tb.setMovable(False)
-        for act in self.tool_actions.values():
+        for name, act in self.tool_actions.items():
+            if name == "block":
+                tb.addSeparator()
             tb.addAction(act)
         tb.addSeparator()
         tb.addAction(self.act_ref_mode)
@@ -296,6 +322,48 @@ class MainWindow(QMainWindow):
         self.model.reference_mode = on
         self.canvas.update()
 
+    def _set_show_blocks(self, on):
+        self.canvas.show_blocks = on
+        self.canvas.update()
+
+    def _set_show_mesh(self, on):
+        self.canvas.show_mesh = on
+        self.mesher.enabled = on
+        if on:
+            self.mesher.schedule()
+        self.canvas.update()
+
+    # --- blocks ------------------------------------------------------------------------------
+    def block_all(self):
+        made, skipped = self.model.make_all_blocks()
+        msg = f"Made {len(made)} block(s)."
+        if skipped:
+            msg += f" {len(skipped)} region(s) need sub-dividing first (holes or fewer than four corners)."
+        self.statusBar().showMessage(msg, 8000)
+
+    def edit_edge(self, bid, face):
+        res = self.model.resolution()
+        block = res.by_id().get(bid)
+        if block is None:
+            return
+        cells = (block.niv if face in ("south", "north") else block.njv) - 1
+        stored = next(b for b in self.model.doc.blocks if b.id == bid)
+        dlg = EdgeCellsDialog(cells, stored.cluster.get(face), self)
+        if dlg.exec():
+            n, spec, opposite = dlg.values()
+            self.model.set_edge_cells(bid, face, n, spec, opposite)
+        self.canvas.setFocus()
+
+    def split_region(self, point):
+        dlg = SplitDialog(self)
+        if dlg.exec():
+            n, m = dlg.values()
+            try:
+                self.model.subdivide(point, "nxm", n=n, m=m)
+            except BlockError as e:
+                self.statusBar().showMessage(f"Cannot split: {e}.", 8000)
+        self.canvas.setFocus()
+
     def _set_show_regions(self, on):
         self.canvas.show_regions = on
         self.canvas.update()
@@ -318,6 +386,15 @@ class MainWindow(QMainWindow):
         self.canvas.setFocus()
 
     # --- files -------------------------------------------------------------------
+    def _set_path(self, path):
+        self.path = path
+        if path:
+            base = os.path.basename(path)[:-len(PROJECT_SUFFIX)] if path.endswith(PROJECT_SUFFIX) else \
+                os.path.splitext(os.path.basename(path))[0]
+            self.mesher.workdir = os.path.join(os.path.dirname(os.path.abspath(path)), ".emesh", base)
+        else:
+            self.mesher.workdir = None
+
     def _update_title(self):
         name = os.path.basename(self.path) if self.path else "untitled"
         self.setWindowTitle(f"{name}[*] - Eilmer Mesher")
@@ -334,7 +411,7 @@ class MainWindow(QMainWindow):
 
     def new_document(self):
         if self._confirm_discard():
-            self.path = None
+            self._set_path(None)
             self.model.reset(Document())
             self.canvas.zoom_to_fit()
             self._update_title()
@@ -353,7 +430,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Open failed", f"Could not open {path}:\n{e}")
             return
-        self.path = path
+        self._set_path(path)
         self.model.reset(doc)
         self.model.undo_stack.setClean()
         self.canvas.zoom_to_fit()
@@ -374,7 +451,7 @@ class MainWindow(QMainWindow):
             return False
         if not path.endswith(PROJECT_SUFFIX):
             path += PROJECT_SUFFIX
-        self.path = path
+        self._set_path(path)
         return self.save()
 
     def import_points(self):

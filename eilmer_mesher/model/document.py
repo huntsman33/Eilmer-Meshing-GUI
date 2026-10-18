@@ -24,11 +24,26 @@ class BlockError(ValueError):
 
 @dataclass
 class CurveRef:
+    """A curve, or the part of it between parameters t0 < t1, traversed forwards or reversed."""
     id: str
     reversed: bool = False
+    t0: float = 0.0
+    t1: float = 1.0
+
+    def full(self):
+        return self.t0 == 0.0 and self.t1 == 1.0
 
     def to_dict(self):
-        return {"id": self.id, "reversed": self.reversed} if self.reversed else {"id": self.id}
+        d = {"id": self.id}
+        if self.reversed:
+            d["reversed"] = True
+        if not self.full():
+            d["t0"], d["t1"] = self.t0, self.t1
+        return d
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls(d["id"], d.get("reversed", False), float(d.get("t0", 0.0)), float(d.get("t1", 1.0)))
 
 
 @dataclass
@@ -42,14 +57,17 @@ class Block:
     smoothing: dict = None            # e.g. DEFAULT_SMOOTHING; None -> unsmoothed
     cluster: dict = field(default_factory=dict)      # face -> {"type": "RobertsFunction", ...}
     fs_tag: str = "initial"
+    # A block made from a sketch region: {"loop": [curve ids around the region, CCW],
+    # "corners": [4 loop positions]}. Its sides are derived from the topology on demand.
+    region: dict = None
 
     def to_dict(self):
-        d = {
-            "id": self.id,
-            "sides": {f: [r.to_dict() for r in self.sides[f]] for f in FACES},
-            "niv": self.niv, "njv": self.njv,
-            "patch": self.patch, "fs_tag": self.fs_tag,
-        }
+        d = {"id": self.id, "niv": self.niv, "njv": self.njv,
+             "patch": self.patch, "fs_tag": self.fs_tag}
+        if self.region:
+            d["region"] = self.region
+        else:
+            d["sides"] = {f: [r.to_dict() for r in self.sides[f]] for f in FACES}
         if self.patch_opts: d["patch_opts"] = self.patch_opts
         if self.smoothing: d["smoothing"] = self.smoothing
         if self.cluster: d["cluster"] = self.cluster
@@ -57,11 +75,16 @@ class Block:
 
     @classmethod
     def from_dict(cls, d):
-        sides = {f: [CurveRef(r["id"], r.get("reversed", False)) for r in d["sides"][f]] for f in FACES}
+        sides = {f: [CurveRef.from_dict(r) for r in d.get("sides", {}).get(f, [])] for f in FACES}
         return cls(id=d["id"], sides=sides, niv=d["niv"], njv=d["njv"],
                    patch=d.get("patch", "CoonsPatch"), patch_opts=d.get("patch_opts", {}),
                    smoothing=d.get("smoothing"), cluster=d.get("cluster", {}),
-                   fs_tag=d.get("fs_tag", "initial"))
+                   fs_tag=d.get("fs_tag", "initial"), region=d.get("region"))
+
+    def curve_ids(self):
+        if self.region:
+            return set(self.region["loop"])
+        return {r.id for f in FACES for r in self.sides[f]}
 
 
 @dataclass
@@ -130,9 +153,17 @@ class Document:
     def remove_blocks_using(self, ids):
         """Remove blocks with a face on any of the given curves; returns their ids."""
         ids = set(ids)
-        dead = [b for b in self.blocks if any(r.id in ids for f in FACES for r in b.sides[f])]
+        dead = [b for b in self.blocks if b.curve_ids() & ids]
         self.blocks = [b for b in self.blocks if b not in dead]
         return [b.id for b in dead]
+
+    def with_blocks(self, blocks):
+        """A shallow copy with a different block list (e.g. resolved region blocks for codegen)."""
+        other = Document()
+        other.curves, other.points, other.dimensions, other.bcs = \
+            self.curves, self.points, self.dimensions, self.bcs
+        other.blocks = list(blocks)
+        return other
 
     def remove_curves(self, ids):
         """Remove curves/points and any blocks that reference them; returns the removed block ids."""
@@ -152,7 +183,12 @@ class Document:
     # --- block geometry checks --------------------------------------------
     def ref_endpoints(self, ref):
         c = self.curves[ref.id]
-        return (c.end(), c.start()) if ref.reversed else (c.start(), c.end())
+        if ref.full():
+            a, b = c.start(), c.end()
+        else:
+            from .geom import point_at
+            a, b = point_at(c, ref.t0), point_at(c, ref.t1)
+        return (b, a) if ref.reversed else (a, b)
 
     def face_endpoints(self, block, face):
         refs = block.sides[face]

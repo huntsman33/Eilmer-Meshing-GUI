@@ -33,7 +33,8 @@ class SnapshotCommand(QUndoCommand):
 
 
 class SketchModel(QObject):
-    changed = Signal()             # geometry changed
+    changed = Signal()             # geometry changed (also every frame of a drag)
+    committed = Signal()           # an edit finished, or undo / redo / load: time to re-mesh
     selectionChanged = Signal()
 
     def __init__(self, doc=None, parent=None):
@@ -61,6 +62,7 @@ class SketchModel(QObject):
         if after != before:
             self.undo_stack.push(SnapshotCommand(self, before, after, text))
         self.notify()
+        self.committed.emit()
 
     def cancel_edit(self):
         before, self._before = self._before, None
@@ -85,6 +87,7 @@ class SketchModel(QObject):
         self.doc = Document.from_dict(data)
         self._prune_selection()
         self.notify()
+        self.committed.emit()
 
     def entity_ids(self):
         return set(self.doc.curves) | set(self.doc.points) | set(self.doc.dimensions)
@@ -226,6 +229,166 @@ class SketchModel(QObject):
             _, r, _, _ = geom.arc_geometry(c.p0, c.p1, c.centre)
             self.set_arc(d.curve, r, value)
 
+    # --- blocks ---------------------------------------------------------------------------
+    def topology(self):
+        from ..model.topology import Topology
+        return Topology(self.doc)
+
+    def resolution(self, topo=None):
+        from ..model import blocking
+        return blocking.resolve(self.doc, topo or self.topology())
+
+    def block_at(self, point, topo=None, res=None):
+        """Id of the block whose region contains point, or None."""
+        from shapely.geometry import Point, Polygon
+        res = res or self.resolution(topo)
+        for bid, poly in res.polygons.items():
+            if len(poly) >= 3 and Polygon(poly).contains(Point(point)):
+                return bid
+        return None
+
+    def _new_region_block(self, doc, topo, region, corners=None):
+        """Add a block over a region; counts default to square-ish cells, or follow neighbours."""
+        from ..model import blocking
+        from ..model.document import Block, FACES
+        spec = blocking.region_spec(topo, region, corners)
+        block = Block(doc.new_id("blk"), {f: [] for f in FACES}, region=spec)
+        concrete, _ = blocking.resolve_block(topo, block)
+        block.niv, block.njv = blocking.default_counts(doc, concrete, region.area)
+        doc.add_block(block)
+        res = blocking.resolve(doc, topo)
+        for axis, attr in (("i", "niv"), ("j", "njv")):
+            group = res.groups.get((block.id, axis))
+            others = [b for b in doc.blocks if b.id != block.id
+                      for ax in "ij" if res.groups.get((b.id, ax)) == group]
+            if others:                                   # a neighbour already fixes this count
+                neighbour = others[0]
+                ax = next(a for a in "ij" if res.groups.get((neighbour.id, a)) == group)
+                setattr(block, attr, neighbour.niv if ax == "i" else neighbour.njv)
+        return block.id
+
+    def make_block(self, point, corners=None):
+        """Block the region containing point; returns the block id (BlockError explains failures)."""
+        from ..model.document import BlockError
+        topo = self.topology()
+        region = topo.region_at(point)
+        if region is None:
+            raise BlockError("there is no closed region here")
+        if self.block_at(point, topo) is not None:
+            raise BlockError("this region already has a block")
+        with self.edit("Make block") as doc:
+            return self._new_region_block(doc, topo, region, corners)
+
+    def make_all_blocks(self):
+        """Replace broken blocks and block every free region that can be blocked. Returns (made, skipped)."""
+        from ..model.document import BlockError
+        from shapely.geometry import Polygon
+        topo = self.topology()
+        res = self.resolution(topo)
+        made, skipped = [], []
+        with self.edit("Block all regions") as doc:
+            doc.blocks = [b for b in doc.blocks if b.id not in res.errors]
+            taken = [Polygon(p) for bid, p in res.polygons.items() if bid not in res.errors]
+            for region in topo.regions:
+                probe = Polygon(region.polygon).representative_point()
+                if any(t.contains(probe) for t in taken):
+                    continue
+                try:
+                    made.append(self._new_region_block(doc, topo, region))
+                except BlockError:
+                    skipped.append(region)
+        return made, skipped
+
+    def delete_block(self, bid):
+        with self.edit("Delete block") as doc:
+            doc.blocks = [b for b in doc.blocks if b.id != bid]
+
+    def set_block_corners(self, bid, points):
+        """Re-pick a region block's corners at the four loop vertices nearest the given points."""
+        from ..model import blocking
+        from ..model.document import BlockError
+        topo = self.topology()
+        block = next(b for b in self.doc.blocks if b.id == bid)
+        region, _ = blocking.find_region(topo, block.region)
+        if region is None:
+            raise BlockError("the block's region no longer exists")
+        verts = blocking.loop_vertices(topo, region.loop)
+        corners = [min(range(len(verts)), key=lambda k: math.dist(verts[k], p)) for p in points]
+        spec = blocking.region_spec(topo, region, corners)
+        with self.edit("Set block corners") as doc:
+            b = next(b for b in doc.blocks if b.id == bid)
+            b.region = spec
+            b.cluster = {}
+
+    def set_edge_cells(self, bid, face, cells, cluster=None, opposite=True):
+        """
+        Cells along one block face. The count applies to every face linked to it (the
+        opposite face, and faces shared with other blocks, transitively). The clustering
+        applies to this face, optionally its opposite face, and the same face in
+        neighbouring blocks (mirrored where they run the other way).
+        """
+        from ..mesh.preview import FaceEval
+        from ..model import blocking
+        if cells < 1:
+            raise ValueError("an edge needs at least one cell")
+        res = self.resolution()
+        blocks = res.by_id()
+        group = res.groups[(bid, blocking.AXIS[face])]
+        targets = [face] + ([blocking.OPPOSITE[face]] if opposite else [])
+        start = {f: FaceEval(self.doc, blocks[bid].sides[f])([0.0])[0] for f in targets}
+        with self.edit("Edge cells") as doc:
+            for b in doc.blocks:
+                if res.groups.get((b.id, "i")) == group:
+                    b.niv = cells + 1
+                if res.groups.get((b.id, "j")) == group:
+                    b.njv = cells + 1
+            by_id = {b.id: b for b in doc.blocks}
+            for f in targets:
+                _set_cluster(by_id[bid], f, cluster)
+                for other, of in blocking.linked_faces(res, bid, f):
+                    same = math.dist(FaceEval(doc, other.sides[of])([0.0])[0], start[f]) < 1e-9 * \
+                        max(1.0, abs(start[f][0]), abs(start[f][1]))
+                    _set_cluster(by_id[other.id], of, cluster if same else _mirror_cluster(cluster))
+
+    def subdivide(self, point, kind, **opts):
+        """Split the region at point with reference curves, then block the new regions. Returns block ids."""
+        from shapely.geometry import Polygon
+        from ..model import subdivide
+        from ..model.document import BlockError
+        topo = self.topology()
+        region = topo.region_at(point)
+        if region is None:
+            raise BlockError("there is no closed region here")
+        old_block = self.block_at(point, topo)
+        if kind == "nxm":
+            curves = subdivide.split_nxm(topo, region, opts.get("n", 2), opts.get("m", 2))
+        elif kind == "ogrid":
+            curves = subdivide.ogrid(topo, region, opts.get("size", 0.5))
+        elif kind == "ogrid_hole":
+            curves = subdivide.ogrid_hole(topo, region)
+        elif kind == "centroid":
+            curves = subdivide.centroid_split(topo, region)
+        else:
+            raise ValueError(kind)
+        outline = Polygon(region.polygon, [h for h in region.hole_polygons if len(h) >= 3])
+        made = []
+        with self.edit("Sub-divide") as doc:
+            if old_block is not None:
+                doc.blocks = [b for b in doc.blocks if b.id != old_block]
+            for c in curves:
+                c.id = doc.new_id("c")
+                doc.add_curve(c)
+            from ..model.topology import Topology
+            new_topo = Topology(doc)
+            for r in new_topo.regions:
+                if r.holes or not outline.contains(Polygon(r.polygon).representative_point()):
+                    continue
+                try:
+                    made.append(self._new_region_block(doc, new_topo, r))
+                except BlockError:
+                    pass
+        return made
+
     # --- merge and mirror --------------------------------------------------------------
     def merge(self, ids):
         """Join connected collinear lines, concentric arcs and pieces of one spline.
@@ -297,3 +460,18 @@ class SketchModel(QObject):
         self._before = None
         self.selectionChanged.emit()
         self.notify()
+        self.committed.emit()
+
+
+def _set_cluster(block, face, spec):
+    if spec:
+        block.cluster[face] = dict(spec)
+    else:
+        block.cluster.pop(face, None)
+
+
+def _mirror_cluster(spec):
+    """The same clustering seen from the other end of the edge."""
+    if not spec or spec.get("type") != "RobertsFunction":
+        return spec
+    return {**spec, "end0": spec.get("end1", False), "end1": spec.get("end0", False)}

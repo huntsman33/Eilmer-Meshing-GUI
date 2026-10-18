@@ -4,9 +4,8 @@ Sketch 2D geometry and build block-structured grids for the
 [Eilmer](https://gdtk.uqcloud.net/) compressible-flow solver. The GUI writes a
 `geometry.lua` that Eilmer runs directly, so the mesh you see is the one Eilmer builds.
 
-Status: the sketcher (with trim and region detection) and the Document → Lua →
-Eilmer pipeline work. Blocking, boundary-condition tagging and mesh refinement
-are in progress.
+Status: sketching, blocking and the live Eilmer mesh work. Boundary-condition
+tagging, export and mesh-quality refinement are in progress.
 
 ## Requirements
 - Python 3.10+ with `pip install -r requirements.txt`
@@ -56,6 +55,30 @@ File → Import points (Ctrl+I) reads Selig, Lednicer or plain xy files (e.g. UI
 airfoils) as splines. You can set scale, angle of attack, translation, a split at the
 leading edge (so it can be a block corner) and a trailing-edge closing line.
 
+## Blocking
+| Key | Action |
+|---|---|
+| K | Block tool: click a closed region to make a block over it (its four sharpest corners). Double-click a block edge to set its cells and clustering. Right-click to sub-divide, set corners or delete. |
+| Shift+K | Block all regions (also replaces blocks broken by sketch changes) |
+| F5 | Run Eilmer now |
+| Shift+B / Shift+N | Show blocks / show mesh |
+
+- Dashed reference lines split regions, so they become the interfaces between blocks.
+  Blocks follow the sketch: drag geometry and they re-mesh.
+- Sub-divide: **Split N × M** (iso-parameter lines of the region), **O-grid** (an inner
+  block plus four around it, e.g. a disc), **O-grid around hole** (four blocks around an
+  island such as a cylinder), **Centroid split** (triangles and other N-sided regions).
+- Cell counts are shared along linked edges: opposite edges of a block, and any edge
+  shared with another block, so Eilmer can join them. Clustering uses Eilmer's
+  RobertsFunction; it can also apply to the opposite edge, and is mirrored onto the
+  neighbouring block where its edge runs the other way.
+- The mesh updates live: a numpy preview while you edit (built the same way Eilmer
+  builds it), then `lmr custom-script` runs in the background and its mesh replaces
+  the preview. Runs go in `.emesh/<project>/` next to a saved project.
+- Blocks needing attention are shown in red with the reason in the status bar
+  (for example a region that no longer exists, or a face that only partly matches its
+  neighbour's).
+
 ## How it works
 - A project (`*.emesh.json`) holds curves (line, arc, Bezier, spline), construction points, blocks
   (four faces, each an ordered list of curves) and BC tags. It is the source of truth.
@@ -75,9 +98,14 @@ leading edge (so it can be a block corner) and a trailing-edge closing line.
 from eilmer_mesher.model.document import Document
 from eilmer_mesher.mesh.runner import preview_mesh, export_grids
 
+from eilmer_mesher.model import blocking
+from eilmer_mesher.model.topology import Topology
+
 doc = Document.load("project.emesh.json")
-result = preview_mesh(doc, ".emesh")      # result.grids: list of (niv, njv, 3) arrays
-export_grids(doc, "path/to/sim")          # writes geometry.lua, bcs.lua; runs lmr prep-grids
+res = blocking.resolve(doc, Topology(doc))   # region blocks -> concrete faces; res.errors explains failures
+mesh_doc = doc.with_blocks(res.blocks)
+result = preview_mesh(mesh_doc, ".emesh")    # result.grids: list of (niv, njv, 3) arrays
+export_grids(mesh_doc, "path/to/sim")        # writes geometry.lua, bcs.lua; runs lmr prep-grids
 ```
 
 ## Tests

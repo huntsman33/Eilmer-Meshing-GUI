@@ -90,6 +90,15 @@ def _draw(name, p):
         for tip, a, b in (((16, 4), (12, 9), (20, 9)), ((16, 28), (12, 23), (20, 23)),
                           ((4, 16), (9, 12), (9, 20)), ((28, 16), (23, 12), (23, 20))):
             p.drawPolyline(QPolygonF([QPointF(*a), QPointF(*tip), QPointF(*b)]))
+    elif name == "block":
+        p.setPen(_pen(INK, 1.6))
+        p.setBrush(QColor(ACCENT).lighter(160))
+        p.drawRect(QRectF(5, 5, 22, 22))
+        p.setBrush(Qt.NoBrush)
+        p.setPen(_pen("#3d5a73", 0.9))
+        for k in (10.5, 16, 21.5):
+            p.drawLine(QPointF(k, 5), QPointF(k, 27))
+            p.drawLine(QPointF(5, k), QPointF(27, k))
     elif name == "merge":
         p.drawLine(QPointF(4, 16), QPointF(13, 16))
         p.drawLine(QPointF(19, 16), QPointF(28, 16))

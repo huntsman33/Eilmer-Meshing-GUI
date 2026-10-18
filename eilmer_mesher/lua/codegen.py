@@ -109,7 +109,12 @@ def _face_expr(doc, refs):
     parts = []
     for r in refs:
         name = "path_" + _ident(r.id)
-        parts.append(f"ReversedPath:new{{underlying_path={name}}}" if r.reversed else name)
+        if r.full():
+            parts.append(f"ReversedPath:new{{underlying_path={name}}}" if r.reversed else name)
+        else:
+            # Part of a curve; a reversed range (t0 > t1) runs it backwards.
+            t0, t1 = (r.t1, r.t0) if r.reversed else (r.t0, r.t1)
+            parts.append(f"SubRangedPath:new{{underlying_path={name}, t0={float(t0)!r}, t1={float(t1)!r}}}")
     if len(parts) == 1:
         return parts[0]
     return "Polyline:new{segments={" + ", ".join(parts) + "}}"

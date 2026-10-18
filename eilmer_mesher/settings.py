@@ -25,6 +25,9 @@ DEFAULT_SHORTCUTS = {
     "tool.dimension": ("Dimension", "D"),
     "tool.move": ("Move", "M"),
     "tool.trim": ("Quick trim", "Q"),
+    "tool.block": ("Block", "K"),
+    "block.all": ("Block all regions", "Shift+K"),
+    "mesh.run": ("Run Eilmer now", "F5"),
     "tool.merge": ("Merge", "J"),
     "tool.mirror": ("Mirror", "Shift+M"),
     "file.new": ("New", "Ctrl+N"),
@@ -42,6 +45,8 @@ DEFAULT_SHORTCUTS = {
     "snap.grid": ("Grid snap", "G"),
     "view.fit": ("Zoom to fit", "Space"),
     "view.regions": ("Show regions", "Shift+R"),
+    "view.blocks": ("Show blocks", "Shift+B"),
+    "view.mesh": ("Show mesh", "Shift+N"),
 }
 
 # Keys held down while drawing (single keys, not menu shortcuts).
