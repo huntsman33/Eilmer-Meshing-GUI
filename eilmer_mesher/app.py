@@ -10,6 +10,7 @@ from . import settings
 from .icons import icon
 from .mesh.live import LiveMesher
 from .model.document import BlockError
+from .sketch.bc_dialogs import BCDialog, BCManagerDialog
 from .sketch.block_dialogs import EdgeCellsDialog, SplitDialog
 from .model.document import Document
 from .settings import DEFAULT_HOLD_KEYS, DEFAULT_SHORTCUTS
@@ -18,6 +19,7 @@ from .sketch import snapping
 from .sketch.canvas import SketchCanvas
 from .sketch.edit_dialogs import edit_entity
 from .sketch.import_dialog import ImportPointsDialog
+from .sketch.layer_dialog import LayerDialog
 from .sketch.importers import parse_point_file
 from .sketch.model import SketchModel
 from .sketch.tools import SKETCH_TOOLS
@@ -86,7 +88,7 @@ class InputBar(QWidget):
     def refresh(self):
         tool = self.canvas.tool
         self.prompt.setText(f"<b>{tool.label}</b>  {tool.prompt()}" if tool else "")
-        self.edit.setEnabled(bool(tool and tool.name not in ("select", "trim", "merge", "mirror", "block")))
+        self.edit.setEnabled(bool(tool and tool.name not in ("select", "trim", "merge", "mirror", "block", "layer")))
         if tool is not None and tool.name == "move":
             self.edit.setPlaceholderText(f"type a move in {self.canvas.units.name}:  dx, dy    or  L<deg")
             return
@@ -137,6 +139,8 @@ class MainWindow(QMainWindow):
         self.canvas.message.connect(lambda text: self.statusBar().showMessage(text, 6000))
         self.canvas.edgeRequested.connect(self.edit_edge)
         self.canvas.splitRequested.connect(self.split_region)
+        self.canvas.bcRequested.connect(self.new_bc_for)
+        self.canvas.layerRequested.connect(self.edit_layer)
         self.model.undo_stack.cleanChanged.connect(self._update_title)
         self.model.changed.connect(self._update_title)
 
@@ -167,6 +171,8 @@ class MainWindow(QMainWindow):
         self.act_save = A("file.save", "&Save", self.save)
         self.act_save_as = A("file.save_as", "Save &As...", self.save_as)
         self.act_import = A("file.import", "&Import points (.dat/.txt)...", self.import_points, "import")
+        self.act_export = A("file.export", "&Export to Eilmer...", self.export_to_eilmer, "export")
+        self.act_bcs = A("block.bcs", "Boundary &conditions...", self.manage_bcs)
         self.act_quit = A("file.quit", "&Quit", self.close)
 
         self.act_undo = self.model.undo_stack.createUndoAction(self, "&Undo")
@@ -222,6 +228,7 @@ class MainWindow(QMainWindow):
             m.addAction(a)
         m.addSeparator()
         m.addAction(self.act_import)
+        m.addAction(self.act_export)
         m.addSeparator()
         m.addAction(self.act_quit)
 
@@ -245,7 +252,9 @@ class MainWindow(QMainWindow):
 
         m = mb.addMenu("&Block")
         m.addAction(self.tool_actions["block"])
+        m.addAction(self.tool_actions["layer"])
         m.addAction(self.act_block_all)
+        m.addAction(self.act_bcs)
         m.addAction(self.act_run_mesh)
 
         m = mb.addMenu("&View")
@@ -275,6 +284,7 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_regions)
         tb.addSeparator()
         tb.addAction(self.act_import)
+        tb.addAction(self.act_export)
         tb.addAction(self.act_fit)
 
     # --- shortcuts ---------------------------------------------------------------
@@ -348,11 +358,104 @@ class MainWindow(QMainWindow):
             return
         cells = (block.niv if face in ("south", "north") else block.njv) - 1
         stored = next(b for b in self.model.doc.blocks if b.id == bid)
-        dlg = EdgeCellsDialog(cells, stored.cluster.get(face), self)
+        dlg = EdgeCellsDialog(cells, stored.cluster.get(face), self, units=self.canvas.units)
         if dlg.exec():
             n, spec, opposite = dlg.values()
             self.model.set_edge_cells(bid, face, n, spec, opposite)
         self.canvas.setFocus()
+
+    def edit_layer(self, bid, face):
+        """Settings of the layer on this wall, or (no layer there) the settings for new layers."""
+        lid = self.model.layer_at_face(bid, face) if bid else None
+        if lid is not None:
+            layer = self.model.layer(lid)
+            values = {"first": layer.first, "growth": layer.growth, "cells": layer.cells,
+                      "transition": layer.transition}
+        else:
+            values = settings.layer_defaults()
+        dlg = LayerDialog(self.canvas.units, values, settings.layer_flow(), existing=lid is not None, parent=self)
+        if dlg.exec():
+            settings.set_layer_flow(dlg.flow_values())
+            try:
+                if dlg.removed:
+                    self.model.remove_boundary_layer(lid)
+                    self.statusBar().showMessage("Boundary layer removed.", 6000)
+                elif lid is not None:
+                    self.model.edit_boundary_layer(lid, **dlg.values())
+                    self.statusBar().showMessage("Boundary layer cut again with the new settings.", 6000)
+                else:
+                    settings.set_layer_defaults(dlg.values())
+                    self.statusBar().showMessage("Settings saved for the next boundary layer.", 6000)
+            except BlockError as e:
+                QMessageBox.warning(self, "Boundary layer", f"Cannot change the boundary layer: {e}.")
+        self._refresh_tool_text()
+        self.canvas.setFocus()
+
+    # --- boundary conditions and export -----------------------------------------------------
+    def new_bc_for(self, curve_ids):
+        dlg = BCDialog(self.model.doc, parent=self)
+        if dlg.exec():
+            tag, cls, args = dlg.values()
+            try:
+                self.model.define_bc(tag, cls, args)
+                n = self.model.set_bc(curve_ids, tag)
+                self.statusBar().showMessage(f"'{tag}' ({cls}) set on {n} curve(s).", 6000)
+            except ValueError as e:
+                QMessageBox.warning(self, "Boundary condition", str(e))
+        self.canvas.setFocus()
+
+    def manage_bcs(self):
+        BCManagerDialog(self.model, self).exec()
+        self.canvas.setFocus()
+
+    def export_to_eilmer(self):
+        res = self.model.resolution()
+        if res.errors:
+            text = "\n".join(f"{bid}: {msg}" for bid, msg in res.errors.items())
+            QMessageBox.warning(self, "Export", "Some blocks need attention before exporting:\n\n" + text)
+            return
+        if not res.blocks:
+            QMessageBox.information(self, "Export", "There are no blocks to export yet (Block tool, K).")
+            return
+        start = settings.last_export_dir() or (os.path.dirname(self.path) if self.path else os.getcwd())
+        folder = QFileDialog.getExistingDirectory(self, "Export to Eilmer: choose the simulation folder", start,
+                                                  FILE_DIALOG_OPTIONS | QFileDialog.ShowDirsOnly)
+        if folder:
+            self.export_to(folder, res)
+
+    def export_to(self, folder, res=None):
+        """Write the Eilmer files into folder, run lmr prep-grids, and report. Returns the LmrResult."""
+        import json
+        from PySide6.QtGui import QGuiApplication
+        from .mesh.runner import export_grids
+        res = res or self.model.resolution()
+        QGuiApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            result = export_grids(self.model.doc.with_blocks(res.blocks), folder, starter_files=True)
+        except (BlockError, FileNotFoundError, OSError) as e:
+            QGuiApplication.restoreOverrideCursor()
+            QMessageBox.critical(self, "Export", f"Export failed: {e}")
+            return None
+        QGuiApplication.restoreOverrideCursor()
+        settings.set_last_export_dir(folder)
+        box = QMessageBox(self)
+        box.setWindowTitle("Export to Eilmer")
+        box.setDetailedText(result.output)
+        if result.ok:
+            with open(os.path.join(folder, "lmrsim", "grid", "grid.metadata")) as f:
+                n_conn = len(json.load(f)["grid-connections"])
+            warn = sum(len(w) for w in res.warnings.values())
+            box.setIcon(QMessageBox.Information if not warn else QMessageBox.Warning)
+            box.setText(f"Exported {len(res.blocks)} block(s) and {n_conn} connection(s) to\n{folder}\n\n"
+                        f"Files: {', '.join(result.written)}"
+                        + (f"\n\n{warn} block warning(s): check the blocks marked (!)." if warn else "")
+                        + "\n\nNext: edit sim.lua, then\n  lmr prep-gas -i ideal-air.lua -o ideal-air.gas"
+                          "\n  lmr prep-sim -j sim.lua\n  lmr run")
+        else:
+            box.setIcon(QMessageBox.Critical)
+            box.setText(f"lmr prep-grids failed:\n{result.error_summary}")
+        box.exec()
+        return result
 
     def split_region(self, point):
         dlg = SplitDialog(self)

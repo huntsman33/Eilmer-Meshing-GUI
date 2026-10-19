@@ -8,7 +8,7 @@ may cover only part of a curve), so dragging geometry re-meshes it.
 
 Faces are then linked: opposite faces of a block share a vertex count (niv for
 south/north, njv for east/west), and a face shared with another block must have
-the same count, so Eilmer's identifyGridConnections can join them.
+the same count, so Eilmer can join them (codegen connects faces shared along reference lines).
 """
 import math
 from dataclasses import dataclass, field
@@ -271,8 +271,8 @@ def resolve(doc, topo):
             parent[find((b0.id, AXIS[f0]))] = find((b1.id, AXIS[f1]))
             if any(doc.curves[r.id].kind != "reference" for r in b0.sides[f0]):
                 res.warnings.setdefault(b0.id, []).append(
-                    f"its {f0} face lies on a solid curve shared with block {b1.id}; Eilmer will join the "
-                    "blocks there, so it will not act as a wall (make it a dashed reference line)")
+                    f"its {f0} face is a solid curve shared with block {b1.id}, so it is a wall between "
+                    "them (make it a dashed reference line to let the flow through)")
     for b in res.blocks:
         for axis in "ij":
             res.groups[(b.id, axis)] = find((b.id, axis))

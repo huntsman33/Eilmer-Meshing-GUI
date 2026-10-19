@@ -5,8 +5,8 @@ what `lmr custom-script` writes (to round-off) for CoonsPatch blocks:
   faces      one path, or a Polyline whose breakpoints are segment lengths
              (Line and Arc exact; Bezier, Spline, ReversedPath and SubRangedPath
              estimated with 100 chords, as Eilmer's Path.length does)
-  clustering RobertsFunction per face, blended into (r, s) as in
-             StructuredGrid.make_grid_from_surface
+  clustering RobertsFunction or boundary-layer growth per face, blended into
+             (r, s) as in StructuredGrid.make_grid_from_surface
   smoothing  the same Jacobi Laplace sweep the generated Lua runs
 
 AOPatch blocks preview as CoonsPatch; Eilmer's result replaces the preview.
@@ -74,20 +74,25 @@ def roberts(t, end0=False, end1=False, beta=1.0):
 
 
 def distribute(spec, n):
+    """Vertex parameters for a concrete clustering spec (layers.concrete_cluster)."""
     t = np.linspace(0.0, 1.0, n)
     if spec and spec.get("type") == "RobertsFunction":
         return roberts(t, spec.get("end0", False), spec.get("end1", False), spec.get("beta", 1.0))
+    if spec and spec.get("type") == "growth":
+        from ..model.layers import growth_values
+        return growth_values(spec["r"], spec["n"], t, spec["reverse"])
     return t
 
 
 def block_grid(doc, block):
     """Vertices (niv, njv, 3) of a block, as Eilmer would generate them."""
+    from ..model.layers import concrete_cluster
     f = {face: FaceEval(doc, block.sides[face]) for face in FACES}
     niv, njv = block.niv, block.njv
-    rS = distribute(block.cluster.get("south"), niv)
-    rN = distribute(block.cluster.get("north"), niv)
-    sW = distribute(block.cluster.get("west"), njv)
-    sE = distribute(block.cluster.get("east"), njv)
+    rS = distribute(concrete_cluster(doc, block, "south"), niv)
+    rN = distribute(concrete_cluster(doc, block, "north"), niv)
+    sW = distribute(concrete_cluster(doc, block, "west"), njv)
+    sE = distribute(concrete_cluster(doc, block, "east"), njv)
     r = np.linspace(0.0, 1.0, niv)[:, None]
     s = np.linspace(0.0, 1.0, njv)[None, :]
     sdash = ((1.0 - r) * sW[None, :] + r * sE[None, :]).ravel()

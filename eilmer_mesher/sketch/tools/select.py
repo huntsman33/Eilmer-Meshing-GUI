@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QMenu
 
 from ...model import geom
 from ..canvas import make_pen
+from ..bc_dialogs import add_bc_menu
 from .base import Tool
 from .dimension import offset_at
 
@@ -206,6 +207,7 @@ class SelectTool(Tool):
         if len(curves) >= 2:
             menu.addAction("Merge", lambda: self._merge(curves))
         if curves:
+            add_bc_menu(menu, self.canvas, sorted(curves))
             menu.addAction("Toggle reference (dashed)", self.model.toggle_reference)
         menu.addAction("Delete", self.model.delete_selection)
         menu.popup(self.canvas.mapToGlobal(ev.screen.toPoint()))

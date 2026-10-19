@@ -6,6 +6,7 @@ CurveRefs; a face with several curves becomes an Eilmer Polyline, and a curve
 traversed backwards is wrapped in a ReversedPath. Orientation follows Eilmer's
 CoonsPatch convention: south and north run west->east, west and east run south->north.
 """
+import copy
 import json
 import math
 from dataclasses import dataclass, field
@@ -108,6 +109,36 @@ class Dimension:
         return cls(d["id"], d["kind"], d["curve"], float(d.get("offset", 0.0)))
 
 
+@dataclass
+class BoundaryLayer:
+    """
+    Thin wall blocks with geometric growth away from the wall (see model/layers.py).
+    first is the wall cell height (metres), growth the ratio between neighbouring
+    cells, cells the number across the layer. Each wall is {"refs": [CurveRef dicts],
+    "inside": point in the block it belongs to}. Once applied, curves and blocks are
+    what it made, base holds the blocks it replaced (so it can be redone or removed) and
+    tagged maps the wall curves it tagged as no-slip walls to [previous tag, its tag].
+    """
+    id: str
+    walls: list
+    first: float = 1.0e-5
+    growth: float = 1.2
+    cells: int = 10
+    transition: bool = True
+    curves: list = field(default_factory=list)
+    blocks: list = field(default_factory=list)
+    base: list = field(default_factory=list)
+    tagged: dict = field(default_factory=dict)
+
+    def to_dict(self):
+        return copy.deepcopy(self.__dict__)
+
+    @classmethod
+    def from_dict(cls, d):
+        d = copy.deepcopy(d)
+        return cls(**{**d, "first": float(d["first"]), "growth": float(d["growth"]), "cells": int(d["cells"])})
+
+
 def _close(a, b, tol=CORNER_TOL):
     return math.hypot(a[0]-b[0], a[1]-b[1]) <= tol * max(1.0, abs(a[0]), abs(a[1]))
 
@@ -121,12 +152,15 @@ class Document:
         self.dimensions = {}  # id -> Dimension
         self.blocks = []      # list[Block]
         self.bcs = {}         # tag -> {"class": "InFlowBC_Supersonic", "args": "flowState=inflow"}
+        self.layers = []      # list[BoundaryLayer], in the order they were applied
         self._counters = {}
 
     # --- construction -----------------------------------------------------
     def new_id(self, prefix):
         n = self._counters.get(prefix, 0)
-        existing = set(self.curves) | set(self.points) | set(self.dimensions) | {b.id for b in self.blocks}
+        existing = (set(self.curves) | set(self.points) | set(self.dimensions) | {b.id for b in self.blocks}
+                    | {layer.id for layer in self.layers}
+                    | {d["id"] for layer in self.layers for d in layer.base})   # blocks a layer may restore
         while True:
             n += 1
             cid = f"{prefix}{n}"
@@ -160,8 +194,8 @@ class Document:
     def with_blocks(self, blocks):
         """A shallow copy with a different block list (e.g. resolved region blocks for codegen)."""
         other = Document()
-        other.curves, other.points, other.dimensions, other.bcs = \
-            self.curves, self.points, self.dimensions, self.bcs
+        other.curves, other.points, other.dimensions, other.bcs, other.layers = \
+            self.curves, self.points, self.dimensions, self.bcs, self.layers
         other.blocks = list(blocks)
         return other
 
@@ -236,6 +270,7 @@ class Document:
             "dimensions": [d.to_dict() for d in self.dimensions.values()],
             "blocks": [b.to_dict() for b in self.blocks],
             "bcs": self.bcs,
+            "layers": [layer.to_dict() for layer in self.layers],
         }
 
     @classmethod
@@ -250,6 +285,7 @@ class Document:
         for bd in d.get("blocks", []):
             doc.add_block(Block.from_dict(bd))
         doc.bcs = dict(d.get("bcs", {}))
+        doc.layers = [BoundaryLayer.from_dict(ld) for ld in d.get("layers", [])]
         return doc
 
     def save(self, path):

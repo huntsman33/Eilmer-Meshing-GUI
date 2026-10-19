@@ -16,6 +16,7 @@ from ...mesh.preview import FaceEval
 from ...model import blocking
 from ...model.document import FACES, BlockError
 from ..canvas import COLORS, PICK_PX, make_pen
+from ..bc_dialogs import add_bc_menu
 from .base import Tool
 
 
@@ -121,6 +122,8 @@ class BlockTool(Tool):
         point = ev.world
         if thing[0] == "face":
             menu.addAction("Edge cells...", lambda: self.canvas.edgeRequested.emit(thing[1], thing[2]))
+            block = self.canvas.resolution().by_id()[thing[1]]
+            add_bc_menu(menu, self.canvas, [r.id for r in block.sides[thing[2]]])
         if thing[0] == "region":
             menu.addAction("Make block", lambda: self._try(lambda: self.model.make_block(point), "Block made."))
         if thing[0] in ("face", "block"):

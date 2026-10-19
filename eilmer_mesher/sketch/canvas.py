@@ -15,6 +15,7 @@ from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QPainterPath, QPen, Q
 from PySide6.QtWidgets import QWidget
 
 from ..model import geom
+from ..model.bcs import tag_color
 from ..model.entities import REFERENCE
 from ..model.topology import Topology
 from ..units import Units
@@ -43,6 +44,7 @@ COLORS = {
     "block": "#1a9fd9",
     "block_error": "#d43f3a",
     "mesh": "#3d5a73",
+    "layer": "#6b8e23",
 }
 REGION_FILLS = ["#1a9fd9", "#2e9d57", "#f28c28", "#8e5bd0", "#d43f3a", "#c9a227"]
 POINT_PX = 5
@@ -83,6 +85,8 @@ class SketchCanvas(QWidget):
     message = Signal(str)                 # short status message for the user
     edgeRequested = Signal(str, str)      # (block id, face): open the edge cells dialog
     splitRequested = Signal(object)       # world point of a region to split N x M
+    bcRequested = Signal(object)          # curve ids to give a new boundary condition
+    layerRequested = Signal(str, str)     # (block id, face) to set boundary-layer settings for ("" for defaults)
 
     def __init__(self, model, parent=None):
         super().__init__(parent)
@@ -417,6 +421,8 @@ class SketchCanvas(QWidget):
                 color, width = COLORS["selected"], 2.5
             elif cid == self.hover_id:
                 color, width = COLORS["hover"], 2.5
+            elif c.bc_tag and c.kind != REFERENCE and c.bc_tag in self.model.doc.bcs:
+                color, width = tag_color(self.model.doc, c.bc_tag), 2.6
             else:
                 color = COLORS["reference"] if c.kind == REFERENCE else COLORS["geometry"]
                 width = 1.5
@@ -433,6 +439,32 @@ class SketchCanvas(QWidget):
         if self.tool is not None:
             self.tool.paint_overlay(p)
         self._paint_snap(p)
+        self._paint_bc_legend(p)
+
+    def _paint_bc_legend(self, p):
+        doc = self.model.doc
+        used = sorted({c.bc_tag for c in doc.curves.values()
+                       if c.bc_tag in doc.bcs and c.kind != REFERENCE})
+        if not used:
+            return
+        rows = [(tag_color(doc, t), f"{t}   {doc.bcs[t]['class']}") for t in used]
+        rows.append((COLORS["geometry"], "untagged   slip wall (default)"))
+        fm = QFontMetricsF(self.font())
+        h = fm.height() + 4
+        w = max(fm.horizontalAdvance(text) for _, text in rows) + 34
+        box = QRectF(10, self.height() - 10 - h * len(rows) - 8, w, h * len(rows) + 8)
+        bg = QColor(COLORS["background"])
+        bg.setAlpha(225)
+        p.setPen(make_pen("#c4cad1", 1.0))
+        p.setBrush(bg)
+        p.drawRect(box)
+        p.setBrush(Qt.NoBrush)
+        for k, (color, text) in enumerate(rows):
+            y = box.top() + 4 + h * k + h / 2
+            p.setPen(make_pen(color, 3.0))
+            p.drawLine(QPointF(box.left() + 8, y), QPointF(box.left() + 24, y))
+            p.setPen(QColor(COLORS["geometry"]))
+            p.drawText(QRectF(box.left() + 30, y - h / 2, w, h), Qt.AlignVCenter | Qt.AlignLeft, text)
 
     def _paint_grid(self, p):
         step = self.grid_step()

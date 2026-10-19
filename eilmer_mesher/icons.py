@@ -99,6 +99,17 @@ def _draw(name, p):
         for k in (10.5, 16, 21.5):
             p.drawLine(QPointF(k, 5), QPointF(k, 27))
             p.drawLine(QPointF(5, k), QPointF(27, k))
+    elif name == "layer":
+        p.setPen(_pen(INK, 2.4))
+        p.drawLine(QPointF(4, 26), QPointF(28, 26))
+        p.setPen(_pen(INK, 1.2))
+        for x in range(6, 28, 4):
+            p.drawLine(QPointF(x, 26), QPointF(x - 3, 30))
+        p.setPen(_pen(ACCENT, 1.4))
+        y = 26.0
+        for step in (1.6, 2.2, 3.0, 4.2, 5.8, 8.0):
+            y -= step
+            p.drawLine(QPointF(4, y), QPointF(28, y))
     elif name == "merge":
         p.drawLine(QPointF(4, 16), QPointF(13, 16))
         p.drawLine(QPointF(19, 16), QPointF(28, 16))
@@ -128,6 +139,10 @@ def _draw(name, p):
         p.drawPolyline(QPolygonF([QPointF(6, 18), QPointF(6, 27), QPointF(26, 27), QPointF(26, 18)]))
         p.drawLine(QPointF(16, 4), QPointF(16, 20))
         p.drawPolyline(QPolygonF([QPointF(10, 14), QPointF(16, 20), QPointF(22, 14)]))
+    elif name == "export":
+        p.drawPolyline(QPolygonF([QPointF(6, 18), QPointF(6, 27), QPointF(26, 27), QPointF(26, 18)]))
+        p.drawLine(QPointF(16, 21), QPointF(16, 5))
+        p.drawPolyline(QPolygonF([QPointF(10, 11), QPointF(16, 5), QPointF(22, 11)]))
     elif name == "fit":
         for (x, y, dx, dy) in ((5, 5, 1, 1), (27, 5, -1, 1), (5, 27, 1, -1), (27, 27, -1, -1)):
             p.drawPolyline(QPolygonF([QPointF(x + 7*dx, y), QPointF(x, y), QPointF(x, y + 7*dy)]))

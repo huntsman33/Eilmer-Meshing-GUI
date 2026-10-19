@@ -4,8 +4,8 @@ Sketch 2D geometry and build block-structured grids for the
 [Eilmer](https://gdtk.uqcloud.net/) compressible-flow solver. The GUI writes a
 `geometry.lua` that Eilmer runs directly, so the mesh you see is the one Eilmer builds.
 
-Status: sketching, blocking and the live Eilmer mesh work. Boundary-condition
-tagging, export and mesh-quality refinement are in progress.
+Status: sketching, blocking, the live Eilmer mesh, boundary conditions and export
+work. Mesh-quality checks and refinement are next.
 
 ## Requirements
 - Python 3.10+ with `pip install -r requirements.txt`
@@ -59,6 +59,7 @@ leading edge (so it can be a block corner) and a trailing-edge closing line.
 | Key | Action |
 |---|---|
 | K | Block tool: click a closed region to make a block over it (its four sharpest corners). Double-click a block edge to set its cells and clustering. Right-click to sub-divide, set corners or delete. |
+| Y | Boundary-layer tool: click block walls, Enter cuts a thin wall-clustered layer along them. Double-click a wall for the settings (first cell height or y+, growth ratio, cells). |
 | Shift+K | Block all regions (also replaces blocks broken by sketch changes) |
 | F5 | Run Eilmer now |
 | Shift+B / Shift+N | Show blocks / show mesh |
@@ -79,11 +80,52 @@ leading edge (so it can be a block corner) and a trailing-edge closing line.
   (for example a region that no longer exists, or a face that only partly matches its
   neighbour's).
 
+## Boundary layers
+- With the boundary-layer tool (Y), click the block walls to resolve, then press Enter. Each
+  wall's block is cut by a dashed curve parallel to the wall (a concentric arc for arcs, a line
+  for lines, otherwise a spline) at the layer thickness
+  `delta = h (r^N - 1) / (r - 1)`: first cell height h, growth ratio r, N cells across.
+- The thin block gets N cells growing from h at the wall. The outer block grades on from the
+  last layer cell, taking more cells if it needs them to grow no faster than the layer.
+  Counts and clustering along the wall are kept.
+- The cut continues through neighbouring blocks across dashed lines, so their faces still
+  match. All the blocks it touches are re-blocked automatically.
+- The walls are tagged as no-slip walls. Untagged and slip-wall curves get an existing no-slip
+  tag, or a new `wall` tag (`WallBC_NoSlip_Adiabatic`; change it to `WallBC_NoSlip_FixedT`
+  with Ctrl+B). Other tags are kept. Removing the layer puts the old tags back.
+- Double-click a wall to change its layer's settings (the blocks are cut again) or remove the layer.
+  Double-click a wall without a layer to set the defaults for the next one. The dialog estimates h
+  from a target y+ (turbulent flat plate, Cf = 0.026 Re_x^-1/7).
+- The same "first cell height" spacing is available for any edge in the Block tool's edge dialog.
+  It goes to Eilmer as a `LuaFnClustering` (Eilmer's own GeometricFunction can fail to construct
+  for some inputs).
+
+## Boundary conditions and export
+- Right-click solid curves (Select tool) or a block edge (Block tool), then
+  **Boundary condition**: pick an existing tag, or **New boundary condition...** to choose an
+  Eilmer class (inflow, outflow, walls; with suitable default arguments) and a tag name.
+  Untagged curves are inviscid slip walls (Eilmer's default). Block → Boundary conditions
+  (Ctrl+B) lists, edits, renames and deletes tags. Tagged curves are coloured, with a legend.
+- Blocks are joined only across dashed reference lines. A solid curve between two blocks
+  stays a wall on both sides (a splitter plate, for example).
+- **File → Export to Eilmer** (Ctrl+E) writes into a folder you choose:
+  - `geometry.lua`: the grids, their BC tags and connections
+  - `bcs.lua`: `bcDict`, mapping each tag to its Eilmer BC
+  - `sim.lua` and `ideal-air.lua`: a starter simulation script (with a placeholder flow state for
+    each name the BCs use) and gas-model input, written only if they do not exist yet
+
+  then runs `lmr prep-grids -j geometry.lua` there and reports the result. Next:
+  ```
+  lmr prep-gas -i ideal-air.lua -o ideal-air.gas
+  lmr prep-sim -j sim.lua
+  lmr run
+  ```
+
 ## How it works
 - A project (`*.emesh.json`) holds curves (line, arc, Bezier, spline), construction points, blocks
   (four faces, each an ordered list of curves) and BC tags. It is the source of truth.
 - `eilmer_mesher.lua.codegen` turns it into one `geometry.lua` that runs under both:
-  - `lmr prep-grids -j geometry.lua`: registers the grids and calls `identifyGridConnections()`
+  - `lmr prep-grids -j geometry.lua`: registers the grids and connects them across reference lines
   - `lmr custom-script -j geometry.lua`: writes `preview/blk-NNNN.vtk` for the GUI
 - Curve parameters match Eilmer's, so a trimmed spline is written as a `SubRangedPath`
   that ends exactly where the sketch shows it.

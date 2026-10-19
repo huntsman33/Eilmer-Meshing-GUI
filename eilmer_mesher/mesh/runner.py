@@ -82,7 +82,28 @@ def preview_mesh(doc, workdir):
     return result
 
 
-def export_grids(doc, simdir):
-    """Write geometry.lua and bcs.lua into a simulation folder and run lmr prep-grids there."""
+SIM_FILE = "sim.lua"
+GAS_INPUT_FILE = "ideal-air.lua"
+
+
+def write_starter_files(doc, simdir):
+    """sim.lua and a gas-model input, only where they do not exist yet. Returns the files written."""
+    from ..lua.codegen import used_bc_tags
+    from ..model.bcs import GAS_TEMPLATE, sim_template
+    written = []
+    for name, text in ((SIM_FILE, sim_template(doc, used_bc_tags(doc))), (GAS_INPUT_FILE, GAS_TEMPLATE)):
+        path = os.path.join(simdir, name)
+        if not os.path.exists(path):
+            with open(path, "w") as f:
+                f.write(text)
+            written.append(name)
+    return written
+
+
+def export_grids(doc, simdir, starter_files=False):
+    """Write geometry.lua and bcs.lua (and optionally starter sim files) into a folder; run lmr prep-grids."""
     write_scripts(doc, simdir)
-    return run_lmr("prep-grids", GEOMETRY_FILE, simdir)
+    written = write_starter_files(doc, simdir) if starter_files else []
+    result = run_lmr("prep-grids", GEOMETRY_FILE, simdir)
+    result.written = [GEOMETRY_FILE, BCS_FILE] + written
+    return result

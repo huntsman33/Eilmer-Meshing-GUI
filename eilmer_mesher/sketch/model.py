@@ -229,6 +229,48 @@ class SketchModel(QObject):
             _, r, _, _ = geom.arc_geometry(c.p0, c.p1, c.centre)
             self.set_arc(d.curve, r, value)
 
+    # --- boundary conditions -------------------------------------------------------------
+    def define_bc(self, tag, cls, args="", old_tag=None):
+        """Create or change a BC tag (renaming old_tag updates every curve using it)."""
+        from ..model.bcs import check_tag
+        check_tag(tag)
+        if tag != old_tag and tag in self.doc.bcs:
+            raise ValueError(f"the tag '{tag}' already exists")
+        with self.edit("Boundary condition") as doc:
+            if old_tag is not None and old_tag != tag:
+                doc.bcs.pop(old_tag, None)
+                for c in doc.curves.values():
+                    if c.bc_tag == old_tag:
+                        c.bc_tag = tag
+            doc.bcs[tag] = {"class": cls, "args": args.strip()}
+
+    def set_bc(self, curve_ids, tag):
+        """Tag solid curves ('' = untagged, Eilmer's slip wall). Returns how many were tagged."""
+        if tag and tag not in self.doc.bcs:
+            raise ValueError(f"no boundary condition called '{tag}'")
+        ids = [i for i in curve_ids if i in self.doc.curves and self.doc.curves[i].kind != REFERENCE]
+        if ids:
+            with self.edit("Set boundary condition") as doc:
+                for i in ids:
+                    doc.curves[i].bc_tag = tag
+        return len(ids)
+
+    def delete_bc(self, tag):
+        """Remove a tag; its curves go back to the default slip wall."""
+        with self.edit("Delete boundary condition") as doc:
+            doc.bcs.pop(tag, None)
+            for c in doc.curves.values():
+                if c.bc_tag == tag:
+                    c.bc_tag = ""
+
+    def bc_usage(self):
+        """tag -> number of curves using it."""
+        out = {t: 0 for t in self.doc.bcs}
+        for c in self.doc.curves.values():
+            if c.bc_tag in out:
+                out[c.bc_tag] += 1
+        return out
+
     # --- blocks ---------------------------------------------------------------------------
     def topology(self):
         from ..model.topology import Topology
@@ -389,6 +431,45 @@ class SketchModel(QObject):
                     pass
         return made
 
+    # --- boundary layers ------------------------------------------------------------------
+    def add_boundary_layer(self, faces, first, growth, cells, transition=True):
+        """
+        Boundary layer on block walls [(block id, face)]: the blocks are cut and re-blocked
+        with a thin, wall-clustered block along each wall. Returns the layer id.
+        """
+        from ..model import layers
+        from ..model.document import BlockError, BoundaryLayer
+        res = self.resolution()
+        for bid, face in faces:
+            if layers.layer_of_face(self.doc, res, bid, face) is not None:
+                raise BlockError(f"the {face} face of {bid} already has a boundary layer "
+                                 "(double-click it to change the settings)")
+        walls = [layers.wall_spec(res, bid, face) for bid, face in faces]
+        with self.edit("Boundary layer") as doc:
+            layer = BoundaryLayer(doc.new_id("bl"), walls, float(first), float(growth), int(cells), bool(transition))
+            doc.layers.append(layer)
+            layers.apply(doc, layer)
+        return layer.id
+
+    def layer(self, lid):
+        return next(layer for layer in self.doc.layers if layer.id == lid)
+
+    def layer_at_face(self, bid, face):
+        from ..model import layers
+        layer = layers.layer_of_face(self.doc, self.resolution(), bid, face)
+        return layer.id if layer is not None else None
+
+    def edit_boundary_layer(self, lid, **settings):
+        """New first cell / growth / cells / transition for a layer: it is cut again, re-meshing its blocks."""
+        from ..model import layers
+        with self.edit("Boundary layer settings") as doc:
+            layers.redo_layers(doc, lid, settings)
+
+    def remove_boundary_layer(self, lid):
+        from ..model import layers
+        with self.edit("Remove boundary layer") as doc:
+            layers.redo_layers(doc, lid, remove=True)
+
     # --- merge and mirror --------------------------------------------------------------
     def merge(self, ids):
         """Join connected collinear lines, concentric arcs and pieces of one spline.
@@ -472,6 +553,5 @@ def _set_cluster(block, face, spec):
 
 def _mirror_cluster(spec):
     """The same clustering seen from the other end of the edge."""
-    if not spec or spec.get("type") != "RobertsFunction":
-        return spec
-    return {**spec, "end0": spec.get("end1", False), "end1": spec.get("end0", False)}
+    from ..model.layers import mirror_cluster
+    return mirror_cluster(spec)
