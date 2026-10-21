@@ -49,9 +49,7 @@ fn lua_matches_python() {
 #[cfg(feature = "check")]
 #[test]
 fn generated_lua_compiles() {
-    if emesh_core::golden::skip() {
-        return;
-    }
+    // not a parity check, so it runs everywhere (EMESH_GOLDEN_SKIP only skips comparisons)
     for (name, path, _) in corpus() {
         let doc = Document::load(&path).unwrap();
         let res = blocking::resolve(&doc, &Topology::new(&doc));

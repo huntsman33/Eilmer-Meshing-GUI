@@ -1,0 +1,2 @@
+# Check out text files with LF on every platform: the golden files are compared byte for byte
+* text=auto eol=lf

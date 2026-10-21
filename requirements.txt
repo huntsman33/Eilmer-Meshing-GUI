@@ -1,6 +1,6 @@
 numpy
 scipy
 matplotlib  # imported by gridgen.gridutils
-PySide6
+PySide6<6.12  # 6.12.0 aborts the test suite ("Fatal Python error: deallocating None")
 shapely
 pytest
