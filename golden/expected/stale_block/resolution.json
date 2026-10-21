@@ -1,0 +1,9 @@
+{
+ "blocks": [],
+ "errors": {
+  "blk1": "its region no longer exists (the sketch around it changed)"
+ },
+ "warnings": {},
+ "polygons": {},
+ "groups": []
+}

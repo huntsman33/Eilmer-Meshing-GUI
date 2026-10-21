@@ -1,0 +1,160 @@
+{
+ "input": {
+  "version": 2,
+  "curves": [
+   {
+    "id": "c1",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0,
+     0
+    ],
+    "p1": [
+     2,
+     0
+    ]
+   },
+   {
+    "id": "c2",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     2,
+     0
+    ],
+    "p1": [
+     2,
+     1
+    ]
+   },
+   {
+    "id": "c3",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     2,
+     1
+    ],
+    "p1": [
+     0,
+     1
+    ]
+   },
+   {
+    "id": "c4",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0,
+     1
+    ],
+    "p1": [
+     0,
+     0
+    ]
+   },
+   {
+    "id": "c5",
+    "type": "line",
+    "kind": "split",
+    "p0": [
+     1,
+     0
+    ],
+    "p1": [
+     1,
+     1
+    ]
+   }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [],
+  "bcs": {},
+  "layers": []
+ },
+ "op": {
+  "op": "toggle_split",
+  "ids": [
+   "c1"
+  ]
+ },
+ "output": {
+  "version": 2,
+  "curves": [
+   {
+    "id": "c1",
+    "type": "line",
+    "kind": "split",
+    "p0": [
+     0.0,
+     0.0
+    ],
+    "p1": [
+     2.0,
+     0.0
+    ]
+   },
+   {
+    "id": "c2",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     2.0,
+     0.0
+    ],
+    "p1": [
+     2.0,
+     1.0
+    ]
+   },
+   {
+    "id": "c3",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     2.0,
+     1.0
+    ],
+    "p1": [
+     0.0,
+     1.0
+    ]
+   },
+   {
+    "id": "c4",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0.0,
+     1.0
+    ],
+    "p1": [
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "id": "c5",
+    "type": "line",
+    "kind": "split",
+    "p0": [
+     1.0,
+     0.0
+    ],
+    "p1": [
+     1.0,
+     1.0
+    ]
+   }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [],
+  "bcs": {},
+  "layers": []
+ },
+ "error": null,
+ "returns": null
+}

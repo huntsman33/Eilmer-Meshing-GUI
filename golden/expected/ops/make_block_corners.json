@@ -1,0 +1,289 @@
+{
+ "input": {
+  "version": 2,
+  "curves": [
+   {
+    "id": "sa",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0,
+     0
+    ],
+    "p1": [
+     1,
+     0
+    ]
+   },
+   {
+    "id": "sb",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     2,
+     0
+    ],
+    "p1": [
+     1,
+     0
+    ]
+   },
+   {
+    "id": "na1",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0,
+     1
+    ],
+    "p1": [
+     0.5,
+     1
+    ]
+   },
+   {
+    "id": "na2",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0.5,
+     1
+    ],
+    "p1": [
+     1,
+     1
+    ]
+   },
+   {
+    "id": "nb",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     1,
+     1
+    ],
+    "p1": [
+     2,
+     1
+    ]
+   },
+   {
+    "id": "w",
+    "type": "line",
+    "kind": "geometry",
+    "bc_tag": "inflow",
+    "p0": [
+     0,
+     0
+    ],
+    "p1": [
+     0,
+     1
+    ]
+   },
+   {
+    "id": "e",
+    "type": "line",
+    "kind": "geometry",
+    "bc_tag": "outflow",
+    "p0": [
+     2,
+     0
+    ],
+    "p1": [
+     2,
+     1
+    ]
+   },
+   {
+    "id": "ref",
+    "type": "line",
+    "kind": "split",
+    "p0": [
+     1,
+     0
+    ],
+    "p1": [
+     1,
+     1
+    ]
+   }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [],
+  "bcs": {},
+  "layers": []
+ },
+ "op": {
+  "op": "make_all_blocks"
+ },
+ "output": {
+  "version": 2,
+  "curves": [
+   {
+    "id": "sa",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0.0,
+     0.0
+    ],
+    "p1": [
+     1.0,
+     0.0
+    ]
+   },
+   {
+    "id": "sb",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     2.0,
+     0.0
+    ],
+    "p1": [
+     1.0,
+     0.0
+    ]
+   },
+   {
+    "id": "na1",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0.0,
+     1.0
+    ],
+    "p1": [
+     0.5,
+     1.0
+    ]
+   },
+   {
+    "id": "na2",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0.5,
+     1.0
+    ],
+    "p1": [
+     1.0,
+     1.0
+    ]
+   },
+   {
+    "id": "nb",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     1.0,
+     1.0
+    ],
+    "p1": [
+     2.0,
+     1.0
+    ]
+   },
+   {
+    "id": "w",
+    "type": "line",
+    "kind": "geometry",
+    "bc_tag": "inflow",
+    "p0": [
+     0.0,
+     0.0
+    ],
+    "p1": [
+     0.0,
+     1.0
+    ]
+   },
+   {
+    "id": "e",
+    "type": "line",
+    "kind": "geometry",
+    "bc_tag": "outflow",
+    "p0": [
+     2.0,
+     0.0
+    ],
+    "p1": [
+     2.0,
+     1.0
+    ]
+   },
+   {
+    "id": "ref",
+    "type": "line",
+    "kind": "split",
+    "p0": [
+     1.0,
+     0.0
+    ],
+    "p1": [
+     1.0,
+     1.0
+    ]
+   }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [
+   {
+    "id": "blk1",
+    "niv": 11,
+    "njv": 11,
+    "patch": "CoonsPatch",
+    "fs_tag": "initial",
+    "region": {
+     "loop": [
+      "sa",
+      "ref",
+      "na2",
+      "na1",
+      "w"
+     ],
+     "corners": [
+      0,
+      1,
+      2,
+      4
+     ]
+    }
+   },
+   {
+    "id": "blk2",
+    "niv": 11,
+    "njv": 11,
+    "patch": "CoonsPatch",
+    "fs_tag": "initial",
+    "region": {
+     "loop": [
+      "sb",
+      "e",
+      "nb",
+      "ref"
+     ],
+     "corners": [
+      0,
+      1,
+      2,
+      3
+     ]
+    }
+   }
+  ],
+  "bcs": {},
+  "layers": []
+ },
+ "error": null,
+ "returns": {
+  "made": [
+   "blk1",
+   "blk2"
+  ],
+  "skipped": 0
+ }
+}

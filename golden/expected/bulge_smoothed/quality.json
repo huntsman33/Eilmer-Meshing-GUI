@@ -1,0 +1,17 @@
+{
+ "level": "bad",
+ "summary": "blk1: 24 cells skewness > 0.85 (max 0.89)",
+ "blocks": {
+  "blk1": {
+   "id": "blk1",
+   "cells": 400,
+   "max_skew": 0.8945178481230686,
+   "max_ar": 6.325660994476541,
+   "skew_warn": 128,
+   "skew_bad": 24,
+   "ar_warn": 0,
+   "inverted": 0,
+   "check_ar": true
+  }
+ }
+}

@@ -1,0 +1,171 @@
+{
+ "blocks": [
+  {
+   "id": "blk1",
+   "niv": 11,
+   "njv": 11,
+   "patch": "CoonsPatch",
+   "fs_tag": "initial",
+   "region": {
+    "loop": [
+     "c1",
+     "c2",
+     "c3",
+     "c4"
+    ],
+    "corners": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "sides": {
+    "south": [
+     {
+      "id": "c1"
+     }
+    ],
+    "east": [
+     {
+      "id": "c2"
+     }
+    ],
+    "north": [
+     {
+      "id": "c3",
+      "reversed": true
+     }
+    ],
+    "west": [
+     {
+      "id": "c4",
+      "reversed": true
+     }
+    ]
+   }
+  },
+  {
+   "id": "blk2",
+   "niv": 11,
+   "njv": 11,
+   "patch": "CoonsPatch",
+   "fs_tag": "initial",
+   "region": {
+    "loop": [
+     "c5",
+     "c6",
+     "c7",
+     "c2"
+    ],
+    "corners": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "sides": {
+    "south": [
+     {
+      "id": "c5"
+     }
+    ],
+    "east": [
+     {
+      "id": "c6"
+     }
+    ],
+    "north": [
+     {
+      "id": "c7",
+      "reversed": true
+     }
+    ],
+    "west": [
+     {
+      "id": "c2"
+     }
+    ]
+   }
+  }
+ ],
+ "errors": {},
+ "warnings": {
+  "blk1": [
+   "its east face is a solid curve shared with block blk2, so it is a wall between them (make it a block split line, X, to let the flow through)"
+  ]
+ },
+ "polygons": {
+  "blk1": [
+   [
+    0.0,
+    0.0
+   ],
+   [
+    1.0,
+    0.0
+   ],
+   [
+    1.0,
+    1.0
+   ],
+   [
+    0.0,
+    1.0
+   ]
+  ],
+  "blk2": [
+   [
+    1.0,
+    1.0
+   ],
+   [
+    1.0,
+    0.0
+   ],
+   [
+    2.0,
+    0.0
+   ],
+   [
+    2.0,
+    1.0
+   ]
+  ]
+ },
+ "groups": [
+  [
+   "blk1",
+   "i",
+   [
+    "blk1",
+    "i"
+   ]
+  ],
+  [
+   "blk1",
+   "j",
+   [
+    "blk2",
+    "j"
+   ]
+  ],
+  [
+   "blk2",
+   "i",
+   [
+    "blk2",
+    "i"
+   ]
+  ],
+  [
+   "blk2",
+   "j",
+   [
+    "blk2",
+    "j"
+   ]
+  ]
+ ]
+}

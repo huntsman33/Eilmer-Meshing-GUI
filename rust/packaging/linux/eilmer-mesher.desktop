@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Eilmer Mesher
+GenericName=Block-structured mesh generator
+Comment=Sketch 2D geometry and build block-structured grids for the Eilmer flow solver
+Exec=emesh %f
+Icon=eilmer-mesher
+Terminal=false
+Categories=Science;Engineering;
+MimeType=application/x-emesh-project;

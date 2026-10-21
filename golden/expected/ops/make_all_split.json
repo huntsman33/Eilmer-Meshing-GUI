@@ -1,0 +1,206 @@
+{
+ "input": {
+  "version": 2,
+  "curves": [
+   {
+    "id": "c1",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0,
+     0
+    ],
+    "p1": [
+     2,
+     0
+    ]
+   },
+   {
+    "id": "c2",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     2,
+     0
+    ],
+    "p1": [
+     2,
+     1
+    ]
+   },
+   {
+    "id": "c3",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     2,
+     1
+    ],
+    "p1": [
+     0,
+     1
+    ]
+   },
+   {
+    "id": "c4",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0,
+     1
+    ],
+    "p1": [
+     0,
+     0
+    ]
+   },
+   {
+    "id": "c5",
+    "type": "line",
+    "kind": "split",
+    "p0": [
+     1,
+     0
+    ],
+    "p1": [
+     1,
+     1
+    ]
+   }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [],
+  "bcs": {},
+  "layers": []
+ },
+ "op": {
+  "op": "make_all_blocks"
+ },
+ "output": {
+  "version": 2,
+  "curves": [
+   {
+    "id": "c1",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0.0,
+     0.0
+    ],
+    "p1": [
+     2.0,
+     0.0
+    ]
+   },
+   {
+    "id": "c2",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     2.0,
+     0.0
+    ],
+    "p1": [
+     2.0,
+     1.0
+    ]
+   },
+   {
+    "id": "c3",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     2.0,
+     1.0
+    ],
+    "p1": [
+     0.0,
+     1.0
+    ]
+   },
+   {
+    "id": "c4",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0.0,
+     1.0
+    ],
+    "p1": [
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "id": "c5",
+    "type": "line",
+    "kind": "split",
+    "p0": [
+     1.0,
+     0.0
+    ],
+    "p1": [
+     1.0,
+     1.0
+    ]
+   }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [
+   {
+    "id": "blk1",
+    "niv": 11,
+    "njv": 11,
+    "patch": "CoonsPatch",
+    "fs_tag": "initial",
+    "region": {
+     "loop": [
+      "c1",
+      "c5",
+      "c3",
+      "c4"
+     ],
+     "corners": [
+      0,
+      1,
+      2,
+      3
+     ]
+    }
+   },
+   {
+    "id": "blk2",
+    "niv": 11,
+    "njv": 11,
+    "patch": "CoonsPatch",
+    "fs_tag": "initial",
+    "region": {
+     "loop": [
+      "c1",
+      "c2",
+      "c3",
+      "c5"
+     ],
+     "corners": [
+      0,
+      1,
+      2,
+      3
+     ]
+    }
+   }
+  ],
+  "bcs": {},
+  "layers": []
+ },
+ "error": null,
+ "returns": {
+  "made": [
+   "blk1",
+   "blk2"
+  ],
+  "skipped": 0
+ }
+}

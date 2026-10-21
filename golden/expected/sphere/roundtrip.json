@@ -1,0 +1,117 @@
+{
+  "version": 2,
+  "curves": [
+    {
+      "id": "east",
+      "type": "arc",
+      "kind": "geometry",
+      "p0": [
+        0.0,
+        0.0
+      ],
+      "p1": [
+        0.01,
+        0.01
+      ],
+      "centre": [
+        0.01,
+        0.0
+      ]
+    },
+    {
+      "id": "north",
+      "type": "line",
+      "kind": "geometry",
+      "bc_tag": "outflow",
+      "p0": [
+        0.01,
+        0.02
+      ],
+      "p1": [
+        0.01,
+        0.01
+      ]
+    },
+    {
+      "id": "west",
+      "type": "bezier",
+      "kind": "geometry",
+      "bc_tag": "inflow",
+      "points": [
+        [
+          -0.003,
+          0.0
+        ],
+        [
+          -0.003,
+          0.01
+        ],
+        [
+          0.003,
+          0.015
+        ],
+        [
+          0.01,
+          0.02
+        ]
+      ]
+    },
+    {
+      "id": "south",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        -0.003,
+        0.0
+      ],
+      "p1": [
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [
+    {
+      "id": "blk0",
+      "niv": 61,
+      "njv": 81,
+      "patch": "CoonsPatch",
+      "fs_tag": "initial",
+      "sides": {
+        "north": [
+          {
+            "id": "north"
+          }
+        ],
+        "east": [
+          {
+            "id": "east"
+          }
+        ],
+        "south": [
+          {
+            "id": "south"
+          }
+        ],
+        "west": [
+          {
+            "id": "west"
+          }
+        ]
+      }
+    }
+  ],
+  "bcs": {
+    "inflow": {
+      "class": "InFlowBC_Supersonic",
+      "args": "flowState=inflow"
+    },
+    "outflow": {
+      "class": "OutFlowBC_Simple",
+      "args": ""
+    }
+  },
+  "layers": []
+}

@@ -1,0 +1,102 @@
+{
+  "version": 2,
+  "curves": [
+    {
+      "id": "c1",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        0,
+        0
+      ],
+      "p1": [
+        1,
+        0
+      ]
+    },
+    {
+      "id": "c2",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        1,
+        0
+      ],
+      "p1": [
+        1,
+        1
+      ]
+    },
+    {
+      "id": "c3",
+      "type": "spline",
+      "kind": "geometry",
+      "points": [
+        [
+          1,
+          1
+        ],
+        [
+          0.6,
+          1
+        ],
+        [
+          0.5,
+          0.3
+        ],
+        [
+          0.4,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "c4",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        0,
+        1
+      ],
+      "p1": [
+        0,
+        0
+      ]
+    }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [
+    {
+      "id": "blk1",
+      "niv": 21,
+      "njv": 21,
+      "patch": "AOPatch",
+      "fs_tag": "initial",
+      "region": {
+        "loop": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "corners": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "patch_opts": {
+        "nx": 10,
+        "ny": 10
+      }
+    }
+  ],
+  "bcs": {},
+  "layers": []
+}

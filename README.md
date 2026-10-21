@@ -4,16 +4,64 @@ Sketch 2D geometry and build block-structured grids for the
 [Eilmer](https://gdtk.uqcloud.net/) compressible-flow solver. The GUI writes a
 `mesh.lua` that Eilmer runs directly, so the mesh you see is the one Eilmer builds.
 
-Status: sketching, blocking, the live Eilmer mesh, boundary conditions and export
-work. Mesh-quality checks and refinement are next.
+Status: **0.7.0-pre.1**, the first pre-release of the native desktop app (Rust). Sketching,
+blocking, boundary layers, the live Eilmer mesh, cell quality and refinement, boundary
+conditions and export all work. The Python version remains the reference implementation and
+the place new features are prototyped.
 
-## Requirements
-- Python 3.10+ with `pip install -r requirements.txt`
-- Eilmer 5 (`lmr`) from the [GDTk](https://github.com/gdtk-uq/gdtk) install. `lmr`
-  is found on `PATH`, through `$LMR`, or at `~/gdtkinst/bin/lmr`.
+## Install
+- **Eilmer 5** (`lmr`) from the [GDTk](https://github.com/gdtk-uq/gdtk) install. `lmr` is found on
+  `PATH`, through `$LMR`, or at `~/gdtkinst/bin/lmr`. Without it the app still works, showing its
+  built-in preview mesh (identical to Eilmer's for CoonsPatch blocks), but cannot export.
+- **The desktop app**: download the archive for your system from the
+  [releases](https://github.com/huntsman33/Eilmer-Meshing-GUI/releases) page and unpack it:
+  - Linux (x86_64, aarch64): `eilmer-mesher-*-linux-*.tar.gz`, or the `.AppImage`
+    (`chmod +x` it and run it). Needs glibc 2.35+ (Ubuntu 22.04 or newer) and a desktop with
+    OpenGL or Vulkan. Works under WSLg.
+  - Windows (x86_64): `eilmer-mesher-*-windows-x86_64.zip`.
+  - macOS (Apple silicon and Intel): `eilmer-mesher-*-macos-universal.dmg`. The pre-release is not
+    signed: right-click the app and choose Open the first time.
+
+  Each download holds `emesh` (the app, and the command-line tools) and `emesh-cli` (the
+  command-line tools alone, for scripts). Nothing else needs installing: no Python, Qt or runtime.
+  Put the folder on your `PATH` to start it from any terminal.
+- **From source** (any platform, needs [Rust](https://rustup.rs)):
+  ```
+  cd rust
+  cargo install --path crates/emesh-app     # installs `emesh` into ~/.cargo/bin (on PATH after rustup)
+  ```
 
 ## Run
-From the repository root:
+```
+emesh [project.emesh.json]
+```
+opens the app, from any folder.
+- `--renderer glow` uses OpenGL instead of the default (wgpu, which falls back to OpenGL
+  by itself where no GPU device is available).
+- On Linux the app uses X11 under WSL (`EMESH_WAYLAND=1` keeps Wayland). It sets its own window
+  cursor, so the pointer shows even where no cursor theme is installed (WSLg, minimal systems); there
+  it uses built-in cursors written to `~/.cache/eilmer-mesher/cursors` (`EMESH_BUILTIN_CURSORS=1`
+  forces them).
+- View → Theme switches between Light, Dark and Follow system; the sun/moon button at the right of
+  the toolbar toggles dark mode.
+- Open, Save, Import and Export use the app's own file dialog (Look in, Back/Forward/Up, New Folder,
+  Places and Recent folders, sortable columns, file-type filter); it works the same on every platform.
+- Settings (units, shortcuts, layer defaults...) are kept in the system's settings folder
+  (`~/.config/eilmer-mesher/settings.json` on Linux); Help > About shows where. Set
+  `EMESH_SETTINGS` to use another file.
+- Projects are the same `.emesh.json` files the Python version reads and writes; either opens the
+  other's projects.
+
+Command line, without the window:
+```
+emesh export project.emesh.json sim/      # mesh.lua, bcs.lua, sim.lua, ideal-air.lua; runs lmr prep-grids
+emesh lua project.emesh.json [mesh|bcs|sim]
+emesh check project.emesh.json            # blocks needing attention, cell quality
+emesh preview project.emesh.json          # runs lmr custom-script, compares with the built-in preview
+```
+
+### The Python version
+Python 3.10+ with `pip install -r requirements.txt`, then from the repository root:
 ```
 python3 mesher [project.emesh.json]
 ```
@@ -184,9 +232,16 @@ export_grids(mesh_doc, "path/to/sim")        # writes mesh.lua, bcs.lua; runs lm
 
 ## Tests
 ```
-python3 -m pytest tests
+python3 -m pytest tests          # the Python reference (GUI tests run offscreen)
+cd rust && cargo test --workspace # the Rust port, checked against the Python reference
 ```
-Tests that need `lmr` are skipped when it is not installed. GUI tests run offscreen.
+Tests that need `lmr` are skipped when it is not installed.
+
+The Rust port must reproduce the Python version: `golden/make_goldens.py` writes the reference
+outputs (generated Lua, topology, block resolution, preview grids, cell quality, and 44 editing
+operations) for a corpus of projects, and the Rust tests compare against them. After changing
+Python behaviour, regenerate them with `OPENBLAS_CORETYPE=Haswell python3 golden/make_goldens.py`.
+See [rust/README.md](rust/README.md).
 
 ## Credits
 `gridgen/path.py` and `gridgen/vector3.py` are Python ports of the GDTk geometry

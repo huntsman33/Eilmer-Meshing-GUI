@@ -1,0 +1,152 @@
+{
+  "version": 2,
+  "curves": [
+    {
+      "id": "c1",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        0.0,
+        0.0
+      ],
+      "p1": [
+        2.0,
+        0.0
+      ]
+    },
+    {
+      "id": "c2",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        2.0,
+        0.0
+      ],
+      "p1": [
+        0.6,
+        1.5
+      ]
+    },
+    {
+      "id": "c3",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        0.6,
+        1.5
+      ],
+      "p1": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "id": "c4",
+      "type": "line",
+      "kind": "split",
+      "p0": [
+        1.0,
+        0.0
+      ],
+      "p1": [
+        0.8666666666666667,
+        0.5
+      ]
+    },
+    {
+      "id": "c5",
+      "type": "line",
+      "kind": "split",
+      "p0": [
+        1.3,
+        0.75
+      ],
+      "p1": [
+        0.8666666666666667,
+        0.5
+      ]
+    },
+    {
+      "id": "c6",
+      "type": "line",
+      "kind": "split",
+      "p0": [
+        0.3,
+        0.75
+      ],
+      "p1": [
+        0.8666666666666667,
+        0.5
+      ]
+    }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [
+    {
+      "id": "blk1",
+      "niv": 12,
+      "njv": 10,
+      "patch": "CoonsPatch",
+      "fs_tag": "initial",
+      "region": {
+        "loop": [
+          "c1",
+          "c4",
+          "c6",
+          "c3"
+        ],
+        "corners": [
+          0,
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "id": "blk2",
+      "niv": 12,
+      "njv": 10,
+      "patch": "CoonsPatch",
+      "fs_tag": "initial",
+      "region": {
+        "loop": [
+          "c1",
+          "c2",
+          "c5",
+          "c4"
+        ],
+        "corners": [
+          0,
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "id": "blk3",
+      "niv": 12,
+      "njv": 12,
+      "patch": "CoonsPatch",
+      "fs_tag": "initial",
+      "region": {
+        "loop": [
+          "c6",
+          "c5",
+          "c2",
+          "c3"
+        ],
+        "corners": [
+          0,
+          1,
+          2,
+          3
+        ]
+      }
+    }
+  ],
+  "bcs": {},
+  "layers": []
+}

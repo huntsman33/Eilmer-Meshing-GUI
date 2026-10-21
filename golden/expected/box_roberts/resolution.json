@@ -1,0 +1,109 @@
+{
+ "blocks": [
+  {
+   "id": "blk1",
+   "niv": 31,
+   "njv": 13,
+   "patch": "CoonsPatch",
+   "fs_tag": "initial",
+   "region": {
+    "loop": [
+     "c1",
+     "c2",
+     "c3",
+     "c4"
+    ],
+    "corners": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "cluster": {
+    "south": {
+     "type": "RobertsFunction",
+     "end0": true,
+     "end1": false,
+     "beta": 1.05
+    },
+    "north": {
+     "type": "RobertsFunction",
+     "end0": true,
+     "end1": false,
+     "beta": 1.05
+    },
+    "west": {
+     "type": "RobertsFunction",
+     "end0": true,
+     "end1": true,
+     "beta": 1.2
+    }
+   },
+   "sides": {
+    "south": [
+     {
+      "id": "c1"
+     }
+    ],
+    "east": [
+     {
+      "id": "c2"
+     }
+    ],
+    "north": [
+     {
+      "id": "c3",
+      "reversed": true
+     }
+    ],
+    "west": [
+     {
+      "id": "c4",
+      "reversed": true
+     }
+    ]
+   }
+  }
+ ],
+ "errors": {},
+ "warnings": {},
+ "polygons": {
+  "blk1": [
+   [
+    0.0,
+    0.0
+   ],
+   [
+    2.0,
+    0.0
+   ],
+   [
+    2.0,
+    1.0
+   ],
+   [
+    0.0,
+    1.0
+   ]
+  ]
+ },
+ "groups": [
+  [
+   "blk1",
+   "i",
+   [
+    "blk1",
+    "i"
+   ]
+  ],
+  [
+   "blk1",
+   "j",
+   [
+    "blk1",
+    "j"
+   ]
+  ]
+ ]
+}

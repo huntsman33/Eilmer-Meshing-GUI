@@ -1,0 +1,136 @@
+{
+  "version": 2,
+  "curves": [
+    {
+      "id": "c1",
+      "type": "bezier",
+      "kind": "geometry",
+      "bc_tag": "wall",
+      "points": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.5,
+          0.4
+        ],
+        [
+          1.0,
+          0.0
+        ]
+      ]
+    },
+    {
+      "id": "c2",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        1.0,
+        0.0
+      ],
+      "p1": [
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "id": "c3",
+      "type": "line",
+      "kind": "geometry",
+      "bc_tag": "ambient",
+      "p0": [
+        1.0,
+        1.0
+      ],
+      "p1": [
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "id": "c4",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        0.0,
+        1.0
+      ],
+      "p1": [
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "points": [
+    {
+      "id": "pt1",
+      "x": 0.5,
+      "y": 0.5
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "dim1",
+      "kind": "length",
+      "curve": "c2",
+      "offset": 0.2
+    },
+    {
+      "id": "dim2",
+      "kind": "distance",
+      "curve": "c2",
+      "offset": 0.3,
+      "curve2": "c4"
+    },
+    {
+      "id": "dim3",
+      "kind": "angle",
+      "curve": "c2",
+      "offset": 0.25,
+      "curve2": "c3",
+      "sector": [
+        -1,
+        1
+      ]
+    }
+  ],
+  "blocks": [
+    {
+      "id": "blk1",
+      "niv": 12,
+      "njv": 12,
+      "patch": "AOPatch",
+      "fs_tag": "initial",
+      "region": {
+        "loop": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "corners": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "patch_opts": {
+        "nx": 12,
+        "ny": 8
+      }
+    }
+  ],
+  "bcs": {
+    "wall": {
+      "class": "WallBC_NoSlip_FixedT",
+      "args": "Twall=300.0"
+    },
+    "ambient": {
+      "class": "InOutFlowBC_Ambient",
+      "args": "flowState=ambient"
+    }
+  },
+  "layers": []
+}

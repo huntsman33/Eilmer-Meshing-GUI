@@ -1,0 +1,19 @@
+[package]
+name = "emesh-lua"
+description = "Generates Eilmer Lua (mesh.lua, bcs.lua, sim.lua) from an Eilmer Mesher document"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+# Compile-check generated scripts with an embedded Lua 5.4 (the version Eilmer uses).
+check = ["dep:mlua"]
+
+[dependencies]
+emesh-core.workspace = true
+serde_json.workspace = true
+indexmap.workspace = true
+mlua = { version = "0.10", features = ["lua54", "vendored"], optional = true }
+
+[lints]
+workspace = true

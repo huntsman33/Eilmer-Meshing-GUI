@@ -1,0 +1,17 @@
+{
+ "level": "ok",
+ "summary": "",
+ "blocks": {
+  "blk1": {
+   "id": "blk1",
+   "cells": 360,
+   "max_skew": 0.117794167456372,
+   "max_ar": 9.227229902660994,
+   "skew_warn": 0,
+   "skew_bad": 0,
+   "ar_warn": 0,
+   "inverted": 0,
+   "check_ar": true
+  }
+ }
+}

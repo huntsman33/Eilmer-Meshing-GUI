@@ -1,0 +1,113 @@
+{
+ "input": {
+  "version": 2,
+  "curves": [
+   {
+    "id": "c1",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0,
+     0
+    ],
+    "p1": [
+     2,
+     0
+    ]
+   },
+   {
+    "id": "c2",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     1,
+     -1
+    ],
+    "p1": [
+     1,
+     1
+    ]
+   },
+   {
+    "id": "c3",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0,
+     0.5
+    ],
+    "p1": [
+     2,
+     0.5
+    ]
+   }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [],
+  "bcs": {},
+  "layers": []
+ },
+ "op": {
+  "op": "trim",
+  "cid": "c2",
+  "point": [
+   1.0,
+   -0.6
+  ]
+ },
+ "output": {
+  "version": 2,
+  "curves": [
+   {
+    "id": "c1",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0.0,
+     0.0
+    ],
+    "p1": [
+     2.0,
+     0.0
+    ]
+   },
+   {
+    "id": "c2",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     1.0,
+     0.0
+    ],
+    "p1": [
+     1.0,
+     1.0
+    ]
+   },
+   {
+    "id": "c3",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0.0,
+     0.5
+    ],
+    "p1": [
+     2.0,
+     0.5
+    ]
+   }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [],
+  "bcs": {},
+  "layers": []
+ },
+ "error": null,
+ "returns": [
+  0.0,
+  0.5
+ ]
+}

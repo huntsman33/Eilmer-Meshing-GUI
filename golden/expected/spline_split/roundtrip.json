@@ -1,0 +1,124 @@
+{
+  "version": 2,
+  "curves": [
+    {
+      "id": "c1",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        0.0,
+        0.0
+      ],
+      "p1": [
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "id": "c2",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        1.0,
+        0.0
+      ],
+      "p1": [
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "id": "c3",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        1.0,
+        1.0
+      ],
+      "p1": [
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "id": "c4",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        0.0,
+        1.0
+      ],
+      "p1": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "id": "c5",
+      "type": "spline",
+      "kind": "split",
+      "points": [
+        [
+          0.0,
+          0.3
+        ],
+        [
+          0.4,
+          0.5
+        ],
+        [
+          1.0,
+          0.6
+        ]
+      ]
+    }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [
+    {
+      "id": "blk1",
+      "niv": 16,
+      "njv": 7,
+      "patch": "CoonsPatch",
+      "fs_tag": "initial",
+      "region": {
+        "loop": [
+          "c1",
+          "c2",
+          "c5",
+          "c4"
+        ],
+        "corners": [
+          0,
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "id": "blk2",
+      "niv": 16,
+      "njv": 9,
+      "patch": "CoonsPatch",
+      "fs_tag": "initial",
+      "region": {
+        "loop": [
+          "c5",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "corners": [
+          0,
+          1,
+          2,
+          3
+        ]
+      }
+    }
+  ],
+  "bcs": {},
+  "layers": []
+}

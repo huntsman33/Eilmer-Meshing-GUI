@@ -1,0 +1,147 @@
+{
+ "input": {
+  "version": 2,
+  "curves": [
+   {
+    "id": "c1",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0,
+     0
+    ],
+    "p1": [
+     1,
+     0
+    ]
+   },
+   {
+    "id": "c2",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     1,
+     0
+    ],
+    "p1": [
+     2,
+     0
+    ]
+   },
+   {
+    "id": "c3",
+    "type": "arc",
+    "kind": "geometry",
+    "p0": [
+     3,
+     0
+    ],
+    "p1": [
+     3,
+     1
+    ],
+    "centre": [
+     3,
+     0.5
+    ]
+   },
+   {
+    "id": "c4",
+    "type": "arc",
+    "kind": "geometry",
+    "p0": [
+     3,
+     1
+    ],
+    "p1": [
+     3.5,
+     0.5
+    ],
+    "centre": [
+     3,
+     0.5
+    ]
+   }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [],
+  "bcs": {},
+  "layers": []
+ },
+ "op": {
+  "op": "merge",
+  "ids": [
+   "c1",
+   "c2",
+   "c3",
+   "c4"
+  ]
+ },
+ "output": {
+  "version": 2,
+  "curves": [
+   {
+    "id": "c1",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0.0,
+     0.0
+    ],
+    "p1": [
+     2.0,
+     0.0
+    ]
+   },
+   {
+    "id": "c3",
+    "type": "arc",
+    "kind": "geometry",
+    "p0": [
+     3.0,
+     0.0
+    ],
+    "p1": [
+     3.0,
+     1.0
+    ],
+    "centre": [
+     3.0,
+     0.5
+    ]
+   },
+   {
+    "id": "c4",
+    "type": "arc",
+    "kind": "geometry",
+    "p0": [
+     3.0,
+     1.0
+    ],
+    "p1": [
+     3.5,
+     0.5
+    ],
+    "centre": [
+     3.0,
+     0.5
+    ]
+   }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [],
+  "bcs": {},
+  "layers": []
+ },
+ "error": null,
+ "returns": [
+  [
+   "c1",
+   "c3",
+   "c4"
+  ],
+  1
+ ]
+}

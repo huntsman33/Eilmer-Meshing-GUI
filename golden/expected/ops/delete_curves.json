@@ -1,0 +1,281 @@
+{
+ "input": {
+  "version": 2,
+  "curves": [
+   {
+    "id": "c1",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0,
+     0
+    ],
+    "p1": [
+     3,
+     0
+    ]
+   },
+   {
+    "id": "c2",
+    "type": "line",
+    "kind": "geometry",
+    "bc_tag": "outflow",
+    "p0": [
+     3,
+     0
+    ],
+    "p1": [
+     3,
+     1
+    ]
+   },
+   {
+    "id": "c3",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     3,
+     1
+    ],
+    "p1": [
+     0,
+     1
+    ]
+   },
+   {
+    "id": "c4",
+    "type": "line",
+    "kind": "geometry",
+    "bc_tag": "inflow",
+    "p0": [
+     0,
+     1
+    ],
+    "p1": [
+     0,
+     0
+    ]
+   },
+   {
+    "id": "c5",
+    "type": "line",
+    "kind": "split",
+    "p0": [
+     1,
+     0
+    ],
+    "p1": [
+     1,
+     1
+    ]
+   },
+   {
+    "id": "c6",
+    "type": "line",
+    "kind": "split",
+    "p0": [
+     2,
+     0
+    ],
+    "p1": [
+     2,
+     1
+    ]
+   }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [
+   {
+    "id": "blk1",
+    "niv": 11,
+    "njv": 11,
+    "patch": "CoonsPatch",
+    "fs_tag": "initial",
+    "region": {
+     "loop": [
+      "c1",
+      "c5",
+      "c3",
+      "c4"
+     ],
+     "corners": [
+      0,
+      1,
+      2,
+      3
+     ]
+    }
+   },
+   {
+    "id": "blk2",
+    "niv": 11,
+    "njv": 11,
+    "patch": "CoonsPatch",
+    "fs_tag": "initial",
+    "region": {
+     "loop": [
+      "c1",
+      "c6",
+      "c3",
+      "c5"
+     ],
+     "corners": [
+      0,
+      1,
+      2,
+      3
+     ]
+    }
+   },
+   {
+    "id": "blk3",
+    "niv": 11,
+    "njv": 11,
+    "patch": "CoonsPatch",
+    "fs_tag": "initial",
+    "region": {
+     "loop": [
+      "c1",
+      "c2",
+      "c3",
+      "c6"
+     ],
+     "corners": [
+      0,
+      1,
+      2,
+      3
+     ]
+    }
+   }
+  ],
+  "bcs": {
+   "inflow": {
+    "class": "InFlowBC_Supersonic",
+    "args": "flowState=inflow"
+   },
+   "outflow": {
+    "class": "OutFlowBC_FixedP",
+    "args": "p_outside=101.325e3"
+   }
+  },
+  "layers": []
+ },
+ "op": {
+  "op": "delete",
+  "ids": [
+   "c5"
+  ]
+ },
+ "output": {
+  "version": 2,
+  "curves": [
+   {
+    "id": "c1",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0.0,
+     0.0
+    ],
+    "p1": [
+     3.0,
+     0.0
+    ]
+   },
+   {
+    "id": "c2",
+    "type": "line",
+    "kind": "geometry",
+    "bc_tag": "outflow",
+    "p0": [
+     3.0,
+     0.0
+    ],
+    "p1": [
+     3.0,
+     1.0
+    ]
+   },
+   {
+    "id": "c3",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     3.0,
+     1.0
+    ],
+    "p1": [
+     0.0,
+     1.0
+    ]
+   },
+   {
+    "id": "c4",
+    "type": "line",
+    "kind": "geometry",
+    "bc_tag": "inflow",
+    "p0": [
+     0.0,
+     1.0
+    ],
+    "p1": [
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "id": "c6",
+    "type": "line",
+    "kind": "split",
+    "p0": [
+     2.0,
+     0.0
+    ],
+    "p1": [
+     2.0,
+     1.0
+    ]
+   }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [
+   {
+    "id": "blk3",
+    "niv": 11,
+    "njv": 11,
+    "patch": "CoonsPatch",
+    "fs_tag": "initial",
+    "region": {
+     "loop": [
+      "c1",
+      "c2",
+      "c3",
+      "c6"
+     ],
+     "corners": [
+      0,
+      1,
+      2,
+      3
+     ]
+    }
+   }
+  ],
+  "bcs": {
+   "inflow": {
+    "class": "InFlowBC_Supersonic",
+    "args": "flowState=inflow"
+   },
+   "outflow": {
+    "class": "OutFlowBC_FixedP",
+    "args": "p_outside=101.325e3"
+   }
+  },
+  "layers": []
+ },
+ "error": null,
+ "returns": null
+}

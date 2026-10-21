@@ -1,0 +1,112 @@
+{
+  "version": 2,
+  "curves": [
+    {
+      "id": "s",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        0.0,
+        0.0
+      ],
+      "p1": [
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "id": "n",
+      "type": "bezier",
+      "kind": "geometry",
+      "points": [
+        [
+          0.0,
+          2.0
+        ],
+        [
+          0.7,
+          2.5
+        ],
+        [
+          2.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "w",
+      "type": "bezier",
+      "kind": "geometry",
+      "points": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.7,
+          1.0
+        ],
+        [
+          0.0,
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "e",
+      "type": "arc",
+      "kind": "geometry",
+      "p0": [
+        1.0,
+        0.0
+      ],
+      "p1": [
+        2.0,
+        1.0
+      ],
+      "centre": [
+        2.0,
+        0.0
+      ]
+    }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [
+    {
+      "id": "blk0",
+      "niv": 21,
+      "njv": 21,
+      "patch": "CoonsPatch",
+      "fs_tag": "initial",
+      "sides": {
+        "north": [
+          {
+            "id": "n"
+          }
+        ],
+        "east": [
+          {
+            "id": "e"
+          }
+        ],
+        "south": [
+          {
+            "id": "s"
+          }
+        ],
+        "west": [
+          {
+            "id": "w"
+          }
+        ]
+      },
+      "smoothing": {
+        "nsweeps": 50,
+        "tol": 1e-12
+      }
+    }
+  ],
+  "bcs": {},
+  "layers": []
+}

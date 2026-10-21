@@ -1,0 +1,32 @@
+[package]
+name = "emesh-app"
+description = "Eilmer Mesher: sketch 2D geometry and build block-structured grids for Eilmer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "emesh"
+path = "src/main.rs"
+
+[dependencies]
+emesh-core.workspace = true
+emesh-lua.workspace = true
+emesh-mesh.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+indexmap.workspace = true
+eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "wgpu", "glow", "wayland", "x11", "persistence"] }
+egui = "0.31.1"
+directories = "6"
+emesh-cli = { path = "../emesh-cli" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Console"] }
+
+[lib]
+name = "emesh_app"
+path = "src/lib.rs"
+
+[lints]
+workspace = true

@@ -6,3 +6,6 @@ __pycache__/
 preview/
 lmrsim/
 *.vtk
+# Rust build output and local (uncommitted) golden files
+rust/target/
+golden/local/

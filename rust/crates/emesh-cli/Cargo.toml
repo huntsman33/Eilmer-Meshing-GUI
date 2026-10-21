@@ -1,0 +1,23 @@
+[package]
+name = "emesh-cli"
+description = "Headless Eilmer Mesher: export projects to Eilmer and print generated Lua"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "emesh_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "emesh-cli"
+path = "src/main.rs"
+
+[dependencies]
+emesh-core.workspace = true
+emesh-lua.workspace = true
+emesh-mesh.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

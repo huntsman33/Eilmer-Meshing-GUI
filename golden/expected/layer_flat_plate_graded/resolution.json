@@ -1,0 +1,201 @@
+{
+ "blocks": [
+  {
+   "id": "blk2",
+   "niv": 23,
+   "njv": 11,
+   "patch": "CoonsPatch",
+   "fs_tag": "initial",
+   "region": {
+    "loop": [
+     "c1",
+     "c2",
+     "c5",
+     "c4"
+    ],
+    "corners": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "cluster": {
+    "east": {
+     "type": "Growth",
+     "first": 0.0001,
+     "reverse": false
+    },
+    "west": {
+     "type": "Growth",
+     "first": 0.0001,
+     "reverse": false
+    }
+   },
+   "sides": {
+    "south": [
+     {
+      "id": "c1"
+     }
+    ],
+    "east": [
+     {
+      "id": "c2",
+      "t0": 0.0,
+      "t1": 0.012979341055999996
+     }
+    ],
+    "north": [
+     {
+      "id": "c5"
+     }
+    ],
+    "west": [
+     {
+      "id": "c4",
+      "reversed": true,
+      "t0": 0.9870206589439999,
+      "t1": 1.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "blk3",
+   "niv": 23,
+   "njv": 25,
+   "patch": "CoonsPatch",
+   "fs_tag": "initial",
+   "region": {
+    "loop": [
+     "c5",
+     "c2",
+     "c3",
+     "c4"
+    ],
+    "corners": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "cluster": {
+    "east": {
+     "type": "Grade",
+     "first": 0.0005159780351999999,
+     "growth": 1.2,
+     "reverse": false
+    },
+    "west": {
+     "type": "Grade",
+     "first": 0.0005159780351999999,
+     "growth": 1.2,
+     "reverse": false
+    }
+   },
+   "sides": {
+    "south": [
+     {
+      "id": "c5"
+     }
+    ],
+    "east": [
+     {
+      "id": "c2",
+      "t0": 0.012979341055999996,
+      "t1": 1.0
+     }
+    ],
+    "north": [
+     {
+      "id": "c3",
+      "reversed": true
+     }
+    ],
+    "west": [
+     {
+      "id": "c4",
+      "reversed": true,
+      "t0": 0.0,
+      "t1": 0.9870206589439999
+     }
+    ]
+   }
+  }
+ ],
+ "errors": {},
+ "warnings": {},
+ "polygons": {
+  "blk2": [
+   [
+    0.0,
+    0.0
+   ],
+   [
+    1.0,
+    0.0
+   ],
+   [
+    1.0,
+    0.0025958682111999996
+   ],
+   [
+    0.0,
+    0.002595868211200003
+   ]
+  ],
+  "blk3": [
+   [
+    1.0,
+    0.0025958682111999996
+   ],
+   [
+    1.0,
+    0.2
+   ],
+   [
+    0.0,
+    0.2
+   ],
+   [
+    0.0,
+    0.002595868211200003
+   ]
+  ]
+ },
+ "groups": [
+  [
+   "blk2",
+   "i",
+   [
+    "blk3",
+    "i"
+   ]
+  ],
+  [
+   "blk2",
+   "j",
+   [
+    "blk2",
+    "j"
+   ]
+  ],
+  [
+   "blk3",
+   "i",
+   [
+    "blk3",
+    "i"
+   ]
+  ],
+  [
+   "blk3",
+   "j",
+   [
+    "blk3",
+    "j"
+   ]
+  ]
+ ]
+}

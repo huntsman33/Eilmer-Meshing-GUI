@@ -1,0 +1,179 @@
+{
+  "version": 2,
+  "curves": [
+    {
+      "id": "sa",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        0.0,
+        0.0
+      ],
+      "p1": [
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "id": "sb",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        2.0,
+        0.0
+      ],
+      "p1": [
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "id": "na1",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        0.0,
+        1.0
+      ],
+      "p1": [
+        0.5,
+        1.0
+      ]
+    },
+    {
+      "id": "na2",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        0.5,
+        1.0
+      ],
+      "p1": [
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "id": "nb",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        1.0,
+        1.0
+      ],
+      "p1": [
+        2.0,
+        1.0
+      ]
+    },
+    {
+      "id": "w",
+      "type": "line",
+      "kind": "geometry",
+      "bc_tag": "inflow",
+      "p0": [
+        0.0,
+        0.0
+      ],
+      "p1": [
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "id": "e",
+      "type": "line",
+      "kind": "geometry",
+      "bc_tag": "outflow",
+      "p0": [
+        2.0,
+        0.0
+      ],
+      "p1": [
+        2.0,
+        1.0
+      ]
+    },
+    {
+      "id": "ref",
+      "type": "line",
+      "kind": "split",
+      "p0": [
+        1.0,
+        0.0
+      ],
+      "p1": [
+        1.0,
+        1.0
+      ]
+    }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [
+    {
+      "id": "a",
+      "niv": 11,
+      "njv": 11,
+      "patch": "CoonsPatch",
+      "fs_tag": "initial",
+      "sides": {
+        "north": [
+          {
+            "id": "na1"
+          },
+          {
+            "id": "na2"
+          }
+        ],
+        "east": [
+          {
+            "id": "ref"
+          }
+        ],
+        "south": [
+          {
+            "id": "sa"
+          }
+        ],
+        "west": [
+          {
+            "id": "w"
+          }
+        ]
+      }
+    },
+    {
+      "id": "b",
+      "niv": 11,
+      "njv": 11,
+      "patch": "CoonsPatch",
+      "fs_tag": "initial",
+      "sides": {
+        "north": [
+          {
+            "id": "nb"
+          }
+        ],
+        "east": [
+          {
+            "id": "e"
+          }
+        ],
+        "south": [
+          {
+            "id": "sb",
+            "reversed": true
+          }
+        ],
+        "west": [
+          {
+            "id": "ref"
+          }
+        ]
+      }
+    }
+  ],
+  "bcs": {},
+  "layers": []
+}

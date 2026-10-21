@@ -1,0 +1,449 @@
+{
+ "input": {
+  "version": 2,
+  "curves": [
+   {
+    "id": "c1",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0,
+     0
+    ],
+    "p1": [
+     1,
+     0
+    ]
+   },
+   {
+    "id": "c2",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     1,
+     0
+    ],
+    "p1": [
+     1,
+     1
+    ]
+   },
+   {
+    "id": "c3",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     1,
+     1
+    ],
+    "p1": [
+     0,
+     1
+    ]
+   },
+   {
+    "id": "c4",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0,
+     1
+    ],
+    "p1": [
+     0,
+     0
+    ]
+   },
+   {
+    "id": "c5",
+    "type": "arc",
+    "kind": "geometry",
+    "p0": [
+     3.4,
+     0.5
+    ],
+    "p1": [
+     3,
+     0.9
+    ],
+    "centre": [
+     3.0,
+     0.5
+    ]
+   },
+   {
+    "id": "c6",
+    "type": "arc",
+    "kind": "geometry",
+    "p0": [
+     3,
+     0.9
+    ],
+    "p1": [
+     2.6,
+     0.5
+    ],
+    "centre": [
+     3.0,
+     0.5
+    ]
+   },
+   {
+    "id": "c7",
+    "type": "arc",
+    "kind": "geometry",
+    "p0": [
+     2.6,
+     0.5
+    ],
+    "p1": [
+     3,
+     0.09999999999999998
+    ],
+    "centre": [
+     3.0,
+     0.5
+    ]
+   },
+   {
+    "id": "c8",
+    "type": "arc",
+    "kind": "geometry",
+    "p0": [
+     3,
+     0.09999999999999998
+    ],
+    "p1": [
+     3.4,
+     0.5
+    ],
+    "centre": [
+     3.0,
+     0.5
+    ]
+   }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [],
+  "bcs": {},
+  "layers": []
+ },
+ "op": {
+  "op": "subdivide",
+  "point": [
+   0.5,
+   0.5
+  ],
+  "kind": "nxm",
+  "opts": {
+   "n": 3,
+   "m": 2
+  }
+ },
+ "output": {
+  "version": 2,
+  "curves": [
+   {
+    "id": "c1",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0.0,
+     0.0
+    ],
+    "p1": [
+     1.0,
+     0.0
+    ]
+   },
+   {
+    "id": "c2",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     1.0,
+     0.0
+    ],
+    "p1": [
+     1.0,
+     1.0
+    ]
+   },
+   {
+    "id": "c3",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     1.0,
+     1.0
+    ],
+    "p1": [
+     0.0,
+     1.0
+    ]
+   },
+   {
+    "id": "c4",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0.0,
+     1.0
+    ],
+    "p1": [
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "id": "c5",
+    "type": "arc",
+    "kind": "geometry",
+    "p0": [
+     3.4,
+     0.5
+    ],
+    "p1": [
+     3.0,
+     0.9
+    ],
+    "centre": [
+     3.0,
+     0.5
+    ]
+   },
+   {
+    "id": "c6",
+    "type": "arc",
+    "kind": "geometry",
+    "p0": [
+     3.0,
+     0.9
+    ],
+    "p1": [
+     2.6,
+     0.5
+    ],
+    "centre": [
+     3.0,
+     0.5
+    ]
+   },
+   {
+    "id": "c7",
+    "type": "arc",
+    "kind": "geometry",
+    "p0": [
+     2.6,
+     0.5
+    ],
+    "p1": [
+     3.0,
+     0.09999999999999998
+    ],
+    "centre": [
+     3.0,
+     0.5
+    ]
+   },
+   {
+    "id": "c8",
+    "type": "arc",
+    "kind": "geometry",
+    "p0": [
+     3.0,
+     0.09999999999999998
+    ],
+    "p1": [
+     3.4,
+     0.5
+    ],
+    "centre": [
+     3.0,
+     0.5
+    ]
+   },
+   {
+    "id": "c9",
+    "type": "line",
+    "kind": "split",
+    "p0": [
+     0.3333333333333333,
+     0.0
+    ],
+    "p1": [
+     0.3333333333333332,
+     1.0
+    ]
+   },
+   {
+    "id": "c10",
+    "type": "line",
+    "kind": "split",
+    "p0": [
+     0.6666666666666666,
+     0.0
+    ],
+    "p1": [
+     0.6666666666666666,
+     1.0
+    ]
+   },
+   {
+    "id": "c11",
+    "type": "line",
+    "kind": "split",
+    "p0": [
+     0.0,
+     0.5
+    ],
+    "p1": [
+     1.0,
+     0.5
+    ]
+   }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [
+   {
+    "id": "blk1",
+    "niv": 9,
+    "njv": 13,
+    "patch": "CoonsPatch",
+    "fs_tag": "initial",
+    "region": {
+     "loop": [
+      "c1",
+      "c9",
+      "c11",
+      "c4"
+     ],
+     "corners": [
+      0,
+      1,
+      2,
+      3
+     ]
+    }
+   },
+   {
+    "id": "blk2",
+    "niv": 9,
+    "njv": 13,
+    "patch": "CoonsPatch",
+    "fs_tag": "initial",
+    "region": {
+     "loop": [
+      "c11",
+      "c9",
+      "c3",
+      "c4"
+     ],
+     "corners": [
+      0,
+      1,
+      2,
+      3
+     ]
+    }
+   },
+   {
+    "id": "blk3",
+    "niv": 9,
+    "njv": 13,
+    "patch": "CoonsPatch",
+    "fs_tag": "initial",
+    "region": {
+     "loop": [
+      "c1",
+      "c10",
+      "c11",
+      "c9"
+     ],
+     "corners": [
+      0,
+      1,
+      2,
+      3
+     ]
+    }
+   },
+   {
+    "id": "blk4",
+    "niv": 9,
+    "njv": 13,
+    "patch": "CoonsPatch",
+    "fs_tag": "initial",
+    "region": {
+     "loop": [
+      "c1",
+      "c2",
+      "c11",
+      "c10"
+     ],
+     "corners": [
+      0,
+      1,
+      2,
+      3
+     ]
+    }
+   },
+   {
+    "id": "blk5",
+    "niv": 9,
+    "njv": 13,
+    "patch": "CoonsPatch",
+    "fs_tag": "initial",
+    "region": {
+     "loop": [
+      "c11",
+      "c2",
+      "c3",
+      "c10"
+     ],
+     "corners": [
+      0,
+      1,
+      2,
+      3
+     ]
+    }
+   },
+   {
+    "id": "blk6",
+    "niv": 9,
+    "njv": 13,
+    "patch": "CoonsPatch",
+    "fs_tag": "initial",
+    "region": {
+     "loop": [
+      "c11",
+      "c10",
+      "c3",
+      "c9"
+     ],
+     "corners": [
+      0,
+      1,
+      2,
+      3
+     ]
+    }
+   }
+  ],
+  "bcs": {},
+  "layers": []
+ },
+ "error": null,
+ "returns": [
+  "blk1",
+  "blk2",
+  "blk3",
+  "blk4",
+  "blk5",
+  "blk6"
+ ]
+}

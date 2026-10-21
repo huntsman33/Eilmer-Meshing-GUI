@@ -1,0 +1,67 @@
+# Python reference + golden files, and the Rust workspace on Linux, Windows and macOS.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  python-and-parity:
+    name: Python tests, fresh golden files, Rust parity
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Qt runtime libraries
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libdbus-1-3
+      - run: pip install -r requirements.txt
+      - name: Python tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q tests
+      - name: Regenerate the golden files with this machine's Python
+        env:
+          # numpy's dot products use OpenBLAS's Haswell kernel, which the Rust port reproduces
+          OPENBLAS_CORETYPE: Haswell
+        run: python golden/make_goldens.py
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Rust against the regenerated golden files
+        working-directory: rust
+        run: cargo test --workspace
+
+  rust:
+    name: Rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022, macos-14]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Tests (parity with the committed golden files on Linux only; other libms differ in the last bit)
+        working-directory: rust
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" != "Linux" ]; then export EMESH_GOLDEN_SKIP=1; fi
+          cargo test --workspace
+      - name: Generated Lua compiles (embedded Lua 5.4)
+        working-directory: rust
+        run: cargo test -p emesh-lua --features check
+      - name: Clippy
+        working-directory: rust
+        run: cargo clippy --workspace --all-targets -- -D warnings

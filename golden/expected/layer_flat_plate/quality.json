@@ -1,0 +1,28 @@
+{
+ "level": "ok",
+ "summary": "",
+ "blocks": {
+  "blk2": {
+   "id": "blk2",
+   "cells": 220,
+   "max_skew": 1.4725603452663765e-12,
+   "max_ar": 454.5454545454541,
+   "skew_warn": 0,
+   "skew_bad": 0,
+   "ar_warn": 0,
+   "inverted": 0,
+   "check_ar": false
+  },
+  "blk3": {
+   "id": "blk3",
+   "cells": 88,
+   "max_skew": 3.0000693287648674e-15,
+   "max_ar": 1.0857227248384065,
+   "skew_warn": 0,
+   "skew_bad": 0,
+   "ar_warn": 0,
+   "inverted": 0,
+   "check_ar": true
+  }
+ }
+}

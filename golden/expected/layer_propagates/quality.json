@@ -1,0 +1,50 @@
+{
+ "level": "ok",
+ "summary": "",
+ "blocks": {
+  "blk3": {
+   "id": "blk3",
+   "cells": 112,
+   "max_skew": 1.3901373879182048e-11,
+   "max_ar": 71.42857142857297,
+   "skew_warn": 0,
+   "skew_bad": 0,
+   "ar_warn": 0,
+   "inverted": 0,
+   "check_ar": false
+  },
+  "blk4": {
+   "id": "blk4",
+   "cells": 112,
+   "max_skew": 4.241150640559176e-13,
+   "max_ar": 71.42857142857207,
+   "skew_warn": 0,
+   "skew_bad": 0,
+   "ar_warn": 0,
+   "inverted": 0,
+   "check_ar": false
+  },
+  "blk5": {
+   "id": "blk5",
+   "cells": 98,
+   "max_skew": 6.315935428978668e-15,
+   "max_ar": 1.0341242059349178,
+   "skew_warn": 0,
+   "skew_bad": 0,
+   "ar_warn": 0,
+   "inverted": 0,
+   "check_ar": true
+  },
+  "blk6": {
+   "id": "blk6",
+   "cells": 98,
+   "max_skew": 1.3893005264738652e-11,
+   "max_ar": 1.0341242059349105,
+   "skew_warn": 0,
+   "skew_bad": 0,
+   "ar_warn": 0,
+   "inverted": 0,
+   "check_ar": true
+  }
+ }
+}

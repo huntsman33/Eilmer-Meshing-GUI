@@ -1,0 +1,142 @@
+# Release binaries for a version tag (v0.7.0-pre.1, ...): Linux x86_64 / aarch64 (tarball and
+# AppImage), Windows x86_64 (zip), macOS universal (.app in a .dmg). Unsigned: signing needs
+# certificates (Apple Developer ID, Windows code signing) set up as repository secrets.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04
+          - arch: aarch64
+            runner: ubuntu-22.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        working-directory: rust
+        run: cargo build --release -p emesh-app -p emesh-cli
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=${GITHUB_REF_NAME#v}
+          NAME=eilmer-mesher-$VERSION-linux-${{ matrix.arch }}
+          cd rust
+          cargo run --release -p emesh-app --example icon -- target/icons
+          mkdir -p dist/$NAME
+          cp target/release/emesh target/release/emesh-cli ../README.md ../LICENSE dist/$NAME/
+          cp packaging/linux/eilmer-mesher.desktop target/icons/eilmer-mesher-256.png dist/$NAME/
+          tar -C dist -czf dist/$NAME.tar.gz $NAME
+          # AppImage
+          APPDIR=dist/AppDir
+          mkdir -p $APPDIR/usr/bin
+          cp target/release/emesh target/release/emesh-cli $APPDIR/usr/bin/
+          cp packaging/linux/eilmer-mesher.desktop $APPDIR/
+          cp target/icons/eilmer-mesher-256.png $APPDIR/eilmer-mesher.png
+          printf '#!/bin/sh\nHERE="$(dirname "$(readlink -f "$0")")"\nexec "$HERE/usr/bin/emesh" "$@"\n' > $APPDIR/AppRun
+          chmod +x $APPDIR/AppRun
+          curl -sSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.arch }}.AppImage
+          chmod +x appimagetool
+          ARCH=${{ matrix.arch }} ./appimagetool --appimage-extract-and-run $APPDIR dist/$NAME.AppImage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: |
+            rust/dist/*.tar.gz
+            rust/dist/*.AppImage
+
+  windows:
+    name: Windows x86_64
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        working-directory: rust
+        run: cargo build --release -p emesh-app -p emesh-cli
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          $name = "eilmer-mesher-$version-windows-x86_64"
+          New-Item -ItemType Directory -Force rust/dist/$name | Out-Null
+          Copy-Item rust/target/release/emesh.exe, rust/target/release/emesh-cli.exe, README.md, LICENSE rust/dist/$name/
+          Compress-Archive -Path rust/dist/$name -DestinationPath rust/dist/$name.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64
+          path: rust/dist/*.zip
+
+  macos:
+    name: macOS universal
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - name: Build both architectures
+        working-directory: rust
+        run: |
+          cargo build --release -p emesh-app -p emesh-cli --target aarch64-apple-darwin
+          cargo build --release -p emesh-app -p emesh-cli --target x86_64-apple-darwin
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=${GITHUB_REF_NAME#v}
+          NAME=eilmer-mesher-$VERSION-macos-universal
+          cd rust
+          cargo run --release -p emesh-app --example icon -- target/icons
+          APP="dist/Eilmer Mesher.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          for bin in emesh emesh-cli; do
+            lipo -create -output "$APP/Contents/MacOS/$bin" \
+              target/aarch64-apple-darwin/release/$bin target/x86_64-apple-darwin/release/$bin
+          done
+          sed "s/@VERSION@/$VERSION/" packaging/macos/Info.plist > "$APP/Contents/Info.plist"
+          ICONSET=target/eilmer-mesher.iconset
+          mkdir -p $ICONSET
+          for s in 16 32 128 256 512; do cp target/icons/eilmer-mesher-$s.png $ICONSET/icon_${s}x${s}.png; done
+          cp target/icons/eilmer-mesher-32.png $ICONSET/icon_16x16@2x.png
+          cp target/icons/eilmer-mesher-64.png $ICONSET/icon_32x32@2x.png
+          cp target/icons/eilmer-mesher-256.png $ICONSET/icon_128x128@2x.png
+          cp target/icons/eilmer-mesher-512.png $ICONSET/icon_256x256@2x.png
+          iconutil -c icns $ICONSET -o "$APP/Contents/Resources/eilmer-mesher.icns"
+          cp ../README.md ../LICENSE dist/
+          hdiutil create -volname "Eilmer Mesher" -srcfolder dist -ov -format UDZO dist/$NAME.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal
+          path: rust/dist/*.dmg
+
+  publish:
+    name: GitHub release
+    needs: [linux, windows, macos]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: artifacts/*
+          generate_release_notes: true

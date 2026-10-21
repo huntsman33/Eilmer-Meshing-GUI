@@ -1,0 +1,165 @@
+{
+ "input": {
+  "version": 2,
+  "curves": [
+   {
+    "id": "c1",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0,
+     0
+    ],
+    "p1": [
+     2,
+     0
+    ]
+   },
+   {
+    "id": "c2",
+    "type": "arc",
+    "kind": "geometry",
+    "p0": [
+     2,
+     0
+    ],
+    "p1": [
+     2,
+     1.2
+    ],
+    "centre": [
+     1.4,
+     0.6
+    ]
+   },
+   {
+    "id": "c3",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     2,
+     1.2
+    ],
+    "p1": [
+     0,
+     1
+    ]
+   },
+   {
+    "id": "c4",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0,
+     1
+    ],
+    "p1": [
+     0,
+     0
+    ]
+   }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [],
+  "bcs": {},
+  "layers": []
+ },
+ "op": {
+  "op": "make_block",
+  "point": [
+   1.0,
+   0.5
+  ]
+ },
+ "output": {
+  "version": 2,
+  "curves": [
+   {
+    "id": "c1",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0.0,
+     0.0
+    ],
+    "p1": [
+     2.0,
+     0.0
+    ]
+   },
+   {
+    "id": "c2",
+    "type": "arc",
+    "kind": "geometry",
+    "p0": [
+     2.0,
+     0.0
+    ],
+    "p1": [
+     2.0,
+     1.2
+    ],
+    "centre": [
+     1.4,
+     0.6
+    ]
+   },
+   {
+    "id": "c3",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     2.0,
+     1.2
+    ],
+    "p1": [
+     0.0,
+     1.0
+    ]
+   },
+   {
+    "id": "c4",
+    "type": "line",
+    "kind": "geometry",
+    "p0": [
+     0.0,
+     1.0
+    ],
+    "p1": [
+     0.0,
+     0.0
+    ]
+   }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [
+   {
+    "id": "blk1",
+    "niv": 14,
+    "njv": 9,
+    "patch": "CoonsPatch",
+    "fs_tag": "initial",
+    "region": {
+     "loop": [
+      "c1",
+      "c2",
+      "c3",
+      "c4"
+     ],
+     "corners": [
+      0,
+      1,
+      2,
+      3
+     ]
+    }
+   }
+  ],
+  "bcs": {},
+  "layers": []
+ },
+ "error": null,
+ "returns": "blk1"
+}

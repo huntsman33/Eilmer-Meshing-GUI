@@ -1,0 +1,302 @@
+{
+  "version": 2,
+  "curves": [
+    {
+      "id": "c1",
+      "type": "line",
+      "kind": "geometry",
+      "bc_tag": "wall",
+      "p0": [
+        0.0,
+        0.0
+      ],
+      "p1": [
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "id": "c2",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        1.0,
+        0.0
+      ],
+      "p1": [
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "id": "c3",
+      "type": "line",
+      "kind": "geometry",
+      "p0": [
+        1.0,
+        1.0
+      ],
+      "p1": [
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "id": "c4",
+      "type": "line",
+      "kind": "geometry",
+      "bc_tag": "wall",
+      "p0": [
+        0.0,
+        1.0
+      ],
+      "p1": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "id": "c5",
+      "type": "line",
+      "kind": "split",
+      "p0": [
+        0.0,
+        0.016499084800000063
+      ],
+      "p1": [
+        1.0,
+        0.016499084799999997
+      ]
+    },
+    {
+      "id": "c6",
+      "type": "line",
+      "kind": "split",
+      "p0": [
+        0.016499084799999997,
+        0.0
+      ],
+      "p1": [
+        0.016499084800000063,
+        1.0
+      ]
+    }
+  ],
+  "points": [],
+  "dimensions": [],
+  "blocks": [
+    {
+      "id": "blk2",
+      "niv": 9,
+      "njv": 9,
+      "patch": "CoonsPatch",
+      "fs_tag": "initial",
+      "region": {
+        "loop": [
+          "c1",
+          "c6",
+          "c5",
+          "c4"
+        ],
+        "corners": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "cluster": {
+        "south": {
+          "type": "Growth",
+          "first": 0.001,
+          "reverse": false
+        },
+        "west": {
+          "type": "Growth",
+          "first": 0.001,
+          "reverse": false
+        },
+        "north": {
+          "type": "Growth",
+          "first": 0.001,
+          "reverse": false
+        },
+        "east": {
+          "type": "Growth",
+          "first": 0.001,
+          "reverse": false
+        }
+      }
+    },
+    {
+      "id": "blk3",
+      "niv": 9,
+      "njv": 11,
+      "patch": "CoonsPatch",
+      "fs_tag": "initial",
+      "region": {
+        "loop": [
+          "c5",
+          "c6",
+          "c3",
+          "c4"
+        ],
+        "corners": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "cluster": {
+        "north": {
+          "type": "Growth",
+          "first": 0.001,
+          "reverse": false
+        },
+        "south": {
+          "type": "Growth",
+          "first": 0.001,
+          "reverse": false
+        }
+      }
+    },
+    {
+      "id": "blk4",
+      "niv": 11,
+      "njv": 9,
+      "patch": "CoonsPatch",
+      "fs_tag": "initial",
+      "region": {
+        "loop": [
+          "c1",
+          "c2",
+          "c5",
+          "c6"
+        ],
+        "corners": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "cluster": {
+        "east": {
+          "type": "Growth",
+          "first": 0.001,
+          "reverse": false
+        },
+        "west": {
+          "type": "Growth",
+          "first": 0.001,
+          "reverse": false
+        }
+      }
+    },
+    {
+      "id": "blk5",
+      "niv": 11,
+      "njv": 11,
+      "patch": "CoonsPatch",
+      "fs_tag": "initial",
+      "region": {
+        "loop": [
+          "c5",
+          "c2",
+          "c3",
+          "c6"
+        ],
+        "corners": [
+          0,
+          1,
+          2,
+          3
+        ]
+      }
+    }
+  ],
+  "bcs": {
+    "wall": {
+      "class": "WallBC_NoSlip_Adiabatic",
+      "args": ""
+    }
+  },
+  "layers": [
+    {
+      "id": "bl1",
+      "walls": [
+        {
+          "refs": [
+            {
+              "id": "c1"
+            }
+          ],
+          "inside": [
+            0.5,
+            0.5
+          ]
+        },
+        {
+          "refs": [
+            {
+              "id": "c4",
+              "reversed": true
+            }
+          ],
+          "inside": [
+            0.5,
+            0.5
+          ]
+        }
+      ],
+      "first": 0.001,
+      "growth": 1.2,
+      "cells": 8,
+      "transition": false,
+      "curves": [
+        "c5",
+        "c6"
+      ],
+      "blocks": [
+        "blk2",
+        "blk3",
+        "blk4",
+        "blk5"
+      ],
+      "base": [
+        {
+          "id": "blk1",
+          "niv": 11,
+          "njv": 11,
+          "patch": "CoonsPatch",
+          "fs_tag": "initial",
+          "region": {
+            "loop": [
+              "c1",
+              "c2",
+              "c3",
+              "c4"
+            ],
+            "corners": [
+              0,
+              1,
+              2,
+              3
+            ]
+          }
+        }
+      ],
+      "tagged": {
+        "c1": [
+          "",
+          "wall"
+        ],
+        "c4": [
+          "",
+          "wall"
+        ]
+      }
+    }
+  ]
+}

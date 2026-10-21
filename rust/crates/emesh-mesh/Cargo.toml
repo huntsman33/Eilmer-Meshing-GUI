@@ -1,0 +1,15 @@
+[package]
+name = "emesh-mesh"
+description = "Mesh preview (Eilmer's construction reproduced), VTK reader, cell quality and the lmr runner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+emesh-core.workspace = true
+emesh-lua.workspace = true
+serde_json.workspace = true
+indexmap.workspace = true
+
+[lints]
+workspace = true
