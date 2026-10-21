@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication, QMenu
 
 from ...mesh.preview import FaceEval
 from ...model import blocking
+from ...model.geom import project_polyline
 from ...model.document import FACES, BlockError
 from ..canvas import COLORS, PICK_PX, make_pen
 from ..bc_dialogs import add_bc_menu
@@ -49,7 +50,7 @@ class BlockTool(Tool):
         c = self.canvas
         cursor = np.array(c.to_world(screen))
         for (bid, face), pts in self.face_points().items():
-            d = np.hypot(*(pts - cursor).T).min() * c.scale        # world distance in pixels
+            d = project_polyline(pts, cursor)[1] * c.scale          # distance to the face, in pixels
             if d <= PICK_PX and (best is None or d < best[0]):
                 best = (d, bid, face)
         return best[1:] if best else None
