@@ -31,6 +31,7 @@ DEFAULT_SHORTCUTS = {
     "mesh.run": ("Run Eilmer now", "F5"),
     "tool.merge": ("Merge", "J"),
     "tool.mirror": ("Mirror", "Shift+M"),
+    "tool.offset": ("Offset", "F"),
     "file.new": ("New", "Ctrl+N"),
     "file.open": ("Open", "Ctrl+O"),
     "file.save": ("Save", "Ctrl+S"),
@@ -43,13 +44,18 @@ DEFAULT_SHORTCUTS = {
     "edit.redo": ("Redo", "Ctrl+Shift+Z"),
     "edit.delete": ("Delete", "Del"),
     "edit.select_all": ("Select all", "Ctrl+A"),
+    "edit.toggle_split": ("Convert to/from block split line", "X"),
+    "sketch.split_mode": ("Draw block split lines", "Ctrl+X"),
     "edit.toggle_reference": ("Convert to/from reference", "Shift+X"),
-    "sketch.reference_mode": ("Draw reference lines", "X"),
+    "sketch.reference_mode": ("Draw reference lines", "Ctrl+Shift+X"),
     "snap.grid": ("Grid snap", "G"),
     "view.fit": ("Zoom to fit", "Space"),
     "view.regions": ("Show regions", "Shift+R"),
+    "view.grid": ("Show grid", "Shift+G"),
     "view.blocks": ("Show blocks", "Shift+B"),
     "view.mesh": ("Show mesh", "Shift+N"),
+    "view.quality": ("Show cell quality", "Shift+Q"),
+    "block.refine": ("Refine flagged blocks", "Ctrl+R"),
 }
 
 # Keys held down while drawing (single keys, not menu shortcuts).
@@ -102,7 +108,27 @@ def set_units_name(name):
     s.sync()
 
 
-LAYER_DEFAULTS = {"first": 1.0e-5, "growth": 1.2, "cells": 10, "transition": True}
+def show_grid():
+    return _typed(app_settings().value("view/grid", True), True)
+
+
+def set_show_grid(on):
+    s = app_settings()
+    s.setValue("view/grid", bool(on))
+    s.sync()
+
+
+def quality_thresholds():
+    """Cell-quality limits: skew_warn, skew_bad (equiangle skewness) and ar_warn (aspect ratio)."""
+    from .mesh.quality import DEFAULT_THRESHOLDS
+    return _group("quality", DEFAULT_THRESHOLDS)
+
+
+def set_quality_thresholds(values):
+    _set_group("quality", values)
+
+
+LAYER_DEFAULTS = {"first": 1.0e-5, "growth": 1.2, "cells": 10, "transition": False}
 FLOW_DEFAULTS = {"yplus": 1.0, "velocity": 100.0, "density": 1.225, "viscosity": 1.789e-5, "length": 1.0}
 
 

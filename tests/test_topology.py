@@ -13,7 +13,7 @@ from eilmer_mesher.mesh import preview
 from eilmer_mesher.mesh.runner import find_lmr, preview_mesh
 from eilmer_mesher.model import geom
 from eilmer_mesher.model.document import Block, Document
-from eilmer_mesher.model.entities import REFERENCE, ArcSeg, BezierSeg, LineSeg, SplineSeg
+from eilmer_mesher.model.entities import REFERENCE, SPLIT, ArcSeg, BezierSeg, LineSeg, SplineSeg
 from eilmer_mesher.model.topology import Topology, curve_params
 
 SPLINE = SplineSeg("s", points=[(0, 0), (0.5, 0.2), (1, 0), (1.5, -0.1), (2, 0)])
@@ -108,15 +108,35 @@ def box(doc, x0, y0, x1, y1, prefix="b"):
 
 
 class TestTopology(unittest.TestCase):
-    def test_reference_line_splits_box(self):
+    def test_split_line_splits_box(self):
         doc = Document()
         box(doc, 0, 0, 3, 2)
-        doc.add_curve(LineSeg("ref", kind=REFERENCE, p0=(1, 0), p1=(1, 2)))
+        doc.add_curve(LineSeg("ref", kind=SPLIT, p0=(1, 0), p1=(1, 2)))
         topo = Topology(doc)
         self.assertEqual(sorted(round(r.area, 12) for r in topo.regions), [2.0, 4.0])
         self.assertAlmostEqual(topo.region_at((0.5, 1)).area, 2.0)
         self.assertAlmostEqual(topo.region_at((2.0, 1)).area, 4.0)
         self.assertIsNone(topo.region_at((5, 5)))
+
+    def test_reference_lines_are_ignored(self):
+        doc = Document()
+        box(doc, 0, 0, 3, 2)
+        doc.add_curve(LineSeg("axis", kind=REFERENCE, p0=(1, -1), p1=(1, 3)))   # a drawing aid
+        self.assertEqual([round(r.area, 12) for r in Topology(doc).regions], [6.0])
+
+    def test_version_1_dashed_lines_become_split_lines(self):
+        doc = Document()
+        box(doc, 0, 0, 3, 2)
+        doc.add_curve(LineSeg("ref", kind=SPLIT, p0=(1, 0), p1=(1, 2)))
+        old = doc.to_dict()
+        old["version"] = 1
+        old["curves"][-1]["kind"] = REFERENCE                  # how version 1 saved block splitters
+        loaded = Document.from_dict(old)
+        self.assertEqual(loaded.curves["ref"].kind, SPLIT)
+        self.assertEqual(len(Topology(loaded).regions), 2)
+        again = Document.from_dict(loaded.to_dict())           # saved as version 2: no conversion
+        again.curves["ref"].kind = REFERENCE
+        self.assertEqual(Document.from_dict(again.to_dict()).curves["ref"].kind, REFERENCE)
 
     def test_t_junction_and_dangling(self):
         doc = Document()

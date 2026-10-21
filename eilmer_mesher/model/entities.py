@@ -3,8 +3,10 @@ Sketch curve entities.
 
 Each curve maps one-to-one onto an Eilmer Lua path (and a gridgen Path for the
 Python preview). Points are stored as (x, y) tuples; z is always 0 in 2D.
-A curve's kind is either "geometry" (solid line, may carry a BC tag) or
-"reference" (dashed line, an internal block interface).
+A curve's kind is one of
+  "geometry"   solid line: the domain's boundaries and walls; may carry a BC tag
+  "split"      dash-dot line: an interface between blocks (Eilmer joins blocks across it)
+  "reference"  dashed line: a drawing aid (mirror axes, offset sources...); the mesher ignores it
 """
 import math
 from dataclasses import dataclass, field, replace
@@ -13,6 +15,7 @@ from gridgen.path import Line, Arc
 
 GEOMETRY = "geometry"
 REFERENCE = "reference"
+SPLIT = "split"
 
 
 def _pt(p):

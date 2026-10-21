@@ -4,13 +4,13 @@ Block tool.
   click a region          make a block over it (corners: its four sharpest turns)
   click a block           select it
   double-click an edge    cells and clustering along that edge
-  right-click             make block / sub-divide / set corners / delete
+  right-click             make block / patch (Laplace, AOPatch) / sub-divide / set corners / delete
 """
 import math
 
 import numpy as np
-from PySide6.QtCore import QPointF
-from PySide6.QtWidgets import QMenu
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtWidgets import QApplication, QMenu
 
 from ...mesh.preview import FaceEval
 from ...model import blocking
@@ -117,9 +117,15 @@ class BlockTool(Tool):
     def right_click(self, ev):
         thing = self.thing_at(ev)
         if thing is None:
+            if self.canvas.hidden_ids():
+                menu = QMenu(self.canvas)
+                self.canvas.block_visibility_menu(menu, self.model.block_at(ev.world, res=self.canvas.resolution()))
+                menu.popup(self.canvas.mapToGlobal(ev.screen.toPoint()))
             return
         menu = QMenu(self.canvas)
         point = ev.world
+        self.canvas.block_visibility_menu(menu, self.model.block_at(point, res=self.canvas.resolution()))
+        menu.addSeparator()
         if thing[0] == "face":
             menu.addAction("Edge cells...", lambda: self.canvas.edgeRequested.emit(thing[1], thing[2]))
             block = self.canvas.resolution().by_id()[thing[1]]
@@ -128,6 +134,7 @@ class BlockTool(Tool):
             menu.addAction("Make block", lambda: self._try(lambda: self.model.make_block(point), "Block made."))
         if thing[0] in ("face", "block"):
             bid = thing[1]
+            self._patch_menu(menu, bid)
             menu.addAction("Set corners...", lambda: self._start_corners(bid))
             menu.addAction("Delete block", lambda: self.model.delete_block(bid))
         region = self.canvas.topology().region_at(point)
@@ -139,6 +146,31 @@ class BlockTool(Tool):
             act.setEnabled(len(region.holes) == 1)
             sub.addAction("Centroid split", lambda: self._subdivide(point, "centroid"))
         menu.popup(self.canvas.mapToGlobal(ev.screen.toPoint()))
+
+    def _patch_menu(self, menu, bid):
+        """Patch type and smoothing for a block (the refinement options)."""
+        from ...model.document import DEFAULT_SMOOTHING
+        block = next((b for b in self.model.doc.blocks if b.id == bid), None)
+        if block is None:
+            return
+        sub = menu.addMenu("Patch")
+        options = [("CoonsPatch", "CoonsPatch", None),
+                   ("CoonsPatch + Laplace smoothing", "CoonsPatch", DEFAULT_SMOOTHING)]
+        for text, patch, smoothing in options:
+            act = sub.addAction(text, lambda p=patch, sm=smoothing: self.model.set_block_patch(
+                [bid], p, {}, sm))
+            act.setCheckable(True)
+            act.setChecked(block.patch == patch and bool(block.smoothing) == bool(smoothing))
+        act = sub.addAction("AOPatch...", lambda: self._aopatch(bid))
+        act.setCheckable(True)
+        act.setChecked(block.patch == "AOPatch")
+
+    def _aopatch(self, bid):
+        from ..block_dialogs import AOPatchDialog
+        block = next(b for b in self.model.doc.blocks if b.id == bid)
+        dlg = AOPatchDialog(block.patch_opts.get("nx", 10), block.patch_opts.get("ny", 10), self.canvas)
+        if dlg.exec():
+            self.model.set_block_patch([bid], "AOPatch", dlg.values(), smoothing=None)
 
     def _subdivide(self, point, kind, **opts):
         self._try(lambda: self.model.subdivide(point, kind, **opts), "Sub-divided.")
@@ -159,6 +191,31 @@ class BlockTool(Tool):
     def finish(self):
         pass
 
+    def claims_key(self, key):
+        return key == Qt.Key_H
+
+    def claims_hold(self, key):
+        return key == Qt.Key_H
+
+    def key(self, key):
+        if key != Qt.Key_H:
+            return False
+        if QApplication.keyboardModifiers() & Qt.ShiftModifier:
+            self.canvas.toggle_blocks_hidden(self.canvas.all_block_ids())
+            return True
+        bid = self.selected
+        if bid is None:
+            bid = self._cursor_block()
+        if bid is not None:
+            self.canvas.toggle_blocks_hidden({bid})
+        return True
+
+    def _cursor_block(self):
+        pos = self.canvas.last_screen
+        if pos is None:
+            return None
+        return self.model.block_at(tuple(self.canvas.to_world(pos)), res=self.canvas.resolution())
+
     # --- text ---------------------------------------------------------------------------------
     def prompt(self):
         if self.corner_pick is not None:
@@ -167,7 +224,7 @@ class BlockTool(Tool):
 
     def hint(self):
         return ("Block: click a closed region to make a block, double-click a block edge to set its cells, "
-                "right-click to sub-divide, set corners or delete.")
+                "right-click to sub-divide, set corners or delete. H hides / shows the selected block, Shift+H all blocks.")
 
     # --- painting -----------------------------------------------------------------------------
     def paint(self, painter):

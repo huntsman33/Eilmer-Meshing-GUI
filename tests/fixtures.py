@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 os.environ["EMESH_SETTINGS"] = os.path.join(tempfile.mkdtemp(prefix="emesh-settings-"), "settings.ini")
 
 from eilmer_mesher.model.document import Block, CurveRef, Document
-from eilmer_mesher.model.entities import REFERENCE, ArcSeg, BezierSeg, LineSeg
+from eilmer_mesher.model.entities import SPLIT, ArcSeg, BezierSeg, LineSeg
 
 
 def sides(**faces):
@@ -68,7 +68,7 @@ def two_block_doc():
     doc.add_curve(LineSeg("nb", p0=(1, 1), p1=(2, 1)))
     doc.add_curve(LineSeg("w", p0=(0, 0), p1=(0, 1), bc_tag="inflow"))
     doc.add_curve(LineSeg("e", p0=(2, 0), p1=(2, 1), bc_tag="outflow"))
-    doc.add_curve(LineSeg("ref", p0=(1, 0), p1=(1, 1), kind=REFERENCE))
+    doc.add_curve(LineSeg("ref", p0=(1, 0), p1=(1, 1), kind=SPLIT))
     doc.add_block(Block("a", sides(north=["na1", "na2"], east="ref", south="sa", west="w"),
                         niv=11, njv=11))
     doc.add_block(Block("b", sides(north="nb", east="e", south="-sb", west="ref"),

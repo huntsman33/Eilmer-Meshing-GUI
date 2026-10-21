@@ -1,5 +1,5 @@
 """
-Phase 1 pipeline tests: Document -> geometry.lua -> lmr -> VTK -> numpy.
+Phase 1 pipeline tests: Document -> mesh.lua -> lmr -> VTK -> numpy.
 Tests that call lmr are skipped when it is not installed.
 """
 import json

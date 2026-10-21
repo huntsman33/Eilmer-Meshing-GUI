@@ -8,7 +8,7 @@ may cover only part of a curve), so dragging geometry re-meshes it.
 
 Faces are then linked: opposite faces of a block share a vertex count (niv for
 south/north, njv for east/west), and a face shared with another block must have
-the same count, so Eilmer can join them (codegen connects faces shared along reference lines).
+the same count, so Eilmer can join them (codegen connects faces shared along split lines).
 """
 import math
 from dataclasses import dataclass, field
@@ -17,6 +17,7 @@ import numpy as np
 
 from . import geom
 from .document import FACES, Block, BlockError, CurveRef
+from .entities import GEOMETRY
 
 CORNER_MIN_DEG = 15.0          # a loop vertex turning less than this is not a corner
 OPPOSITE = {"south": "north", "north": "south", "east": "west", "west": "east"}
@@ -269,10 +270,10 @@ def resolve(doc, topo):
     for shared in faces_by_key.values():
         for (b0, f0), (b1, f1) in zip(shared, shared[1:]):
             parent[find((b0.id, AXIS[f0]))] = find((b1.id, AXIS[f1]))
-            if any(doc.curves[r.id].kind != "reference" for r in b0.sides[f0]):
+            if any(doc.curves[r.id].kind == GEOMETRY for r in b0.sides[f0]):
                 res.warnings.setdefault(b0.id, []).append(
                     f"its {f0} face is a solid curve shared with block {b1.id}, so it is a wall between "
-                    "them (make it a dashed reference line to let the flow through)")
+                    "them (make it a block split line, X, to let the flow through)")
     for b in res.blocks:
         for axis in "ij":
             res.groups[(b.id, axis)] = find((b.id, axis))
@@ -305,7 +306,7 @@ def _check_conformity(doc, res):
                     for bid, face, other in ((ba, fa, bb), (bb, fb, ba)):
                         res.warnings.setdefault(bid, []).append(
                             f"its {face} face only partly matches block {other}; Eilmer needs whole "
-                            "faces to match (add a reference line so the blocks meet corner to corner)")
+                            "faces to match (add a split line so the blocks meet corner to corner)")
 
 
 def linked_faces(res, block_id, face):

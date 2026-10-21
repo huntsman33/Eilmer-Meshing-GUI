@@ -39,8 +39,11 @@ class LayerDialog(QDialog):
         self.cells.setValue(values["cells"])
         self.transition = QCheckBox("Grade the outer blocks from the last layer cell")
         self.transition.setChecked(values["transition"])
-        self.transition.setToolTip("The outer block grows from the last layer cell at no more than the layer's "
-                                   "ratio (at least 1.1), taking more cells if it needs them.")
+        self.transition.setToolTip(
+            "Off: the blocks outside the layer keep their original cells.\n"
+            "On: they grow from the last layer cell (at the layer's ratio, at least 1.1) up to their\n"
+            "original cell size, then stay uniform, adding cells as needed. When the last layer cell is\n"
+            "much smaller than the outer cells, this growth fills most of the outer block.")
         self.summary = QLabel()
         for w in (self.first,):
             w.textEdited.connect(self._update)

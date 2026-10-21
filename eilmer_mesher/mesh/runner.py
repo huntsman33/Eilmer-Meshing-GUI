@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from ..lua.codegen import PREVIEW_DIR, generate_bcs_lua, generate_geometry_lua
 from .vtkio import read_structured_vtk
 
-GEOMETRY_FILE = "geometry.lua"
+MESH_FILE = "mesh.lua"
 BCS_FILE = "bcs.lua"
 
 
@@ -63,19 +63,19 @@ def run_lmr(command, script, workdir, timeout=120):
 
 def write_scripts(doc, workdir):
     os.makedirs(workdir, exist_ok=True)
-    with open(os.path.join(workdir, GEOMETRY_FILE), "w") as f:
+    with open(os.path.join(workdir, MESH_FILE), "w") as f:
         f.write(generate_geometry_lua(doc))
     with open(os.path.join(workdir, BCS_FILE), "w") as f:
         f.write(generate_bcs_lua(doc))
 
 
 def preview_mesh(doc, workdir):
-    """Generate geometry.lua, run lmr custom-script, and load the block grids it writes."""
+    """Generate mesh.lua, run lmr custom-script, and load the block grids it writes."""
     write_scripts(doc, workdir)
     preview = os.path.join(workdir, PREVIEW_DIR)
     for old in glob.glob(os.path.join(preview, "blk-*.vtk")):
         os.remove(old)
-    result = run_lmr("custom-script", GEOMETRY_FILE, workdir)
+    result = run_lmr("custom-script", MESH_FILE, workdir)
     if result.ok:
         files = sorted(glob.glob(os.path.join(preview, "blk-*.vtk")))
         result.grids = [read_structured_vtk(p) for p in files]
@@ -101,9 +101,9 @@ def write_starter_files(doc, simdir):
 
 
 def export_grids(doc, simdir, starter_files=False):
-    """Write geometry.lua and bcs.lua (and optionally starter sim files) into a folder; run lmr prep-grids."""
+    """Write mesh.lua and bcs.lua (and optionally starter sim files) into a folder; run lmr prep-grids."""
     write_scripts(doc, simdir)
     written = write_starter_files(doc, simdir) if starter_files else []
-    result = run_lmr("prep-grids", GEOMETRY_FILE, simdir)
-    result.written = [GEOMETRY_FILE, BCS_FILE] + written
+    result = run_lmr("prep-grids", MESH_FILE, simdir)
+    result.written = [MESH_FILE, BCS_FILE] + written
     return result

@@ -52,6 +52,14 @@ def dialog_for(model, units, eid, parent=None):
     if eid in doc.dimensions:
         dim = doc.dimensions[eid]
         value = model.dimension_value(eid)
+        if dim.kind == "distance":
+            dlg = DimensionDialog("Distance dimension", [("Distance", units.to_display(value), u, 1e-12, BIG)],
+                                  "The second line moves parallel to itself; the first stays.", parent)
+            return dlg, lambda v: model.set_dimension_value(eid, units.from_display(v[0]))
+        if dim.curve2 is not None:
+            dlg = DimensionDialog("Angle dimension", [("Angle", value, "deg", 1e-9, 179.999999)],
+                                  "The second line turns about the corner; the first stays.", parent)
+            return dlg, lambda v: model.set_dimension_value(eid, v[0])
         if dim.kind == "length":
             dlg = DimensionDialog("Length dimension", [("Length", units.to_display(value), u, 1e-12, BIG)],
                                   "The line's start stays; its end moves.", parent)

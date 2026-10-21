@@ -16,7 +16,7 @@ from PySide6.QtWidgets import QMenu
 from ... import settings
 from ...mesh.preview import FaceEval
 from ...model.document import BlockError, CurveRef
-from ...model.entities import REFERENCE
+from ...model.entities import GEOMETRY
 from ..canvas import COLORS, make_pen
 from .block import BlockTool
 
@@ -43,8 +43,8 @@ class LayerTool(BlockTool):
         bid, f = face
         if face in self.walls:
             self.walls.remove(face)
-        elif any(self.model.doc.curves[r.id].kind == REFERENCE for r in self._face_refs(bid, f)):
-            self.canvas.message.emit("That is a dashed reference line, not a wall.")
+        elif any(self.model.doc.curves[r.id].kind != GEOMETRY for r in self._face_refs(bid, f)):
+            self.canvas.message.emit("That is a block split line, not a wall.")
             return
         elif self.model.layer_at_face(bid, f) is not None:
             self.canvas.message.emit("This wall already has a boundary layer: double-click it to change it.")
@@ -66,9 +66,10 @@ class LayerTool(BlockTool):
             return
         d = settings.layer_defaults()
         try:
-            self.model.add_boundary_layer(walls, d["first"], d["growth"], d["cells"], d["transition"])
-            self.canvas.message.emit(f"Boundary layer cut along {len(walls)} wall(s), tagged as no-slip walls; "
-                                     "its blocks were re-meshed.")
+            lid = self.model.add_boundary_layer(walls, d["first"], d["growth"], d["cells"], d["transition"])
+            note = self.model.layer_note(lid)
+            self.canvas.message.emit(f"Boundary layer cut along {len(walls)} wall(s), tagged as no-slip walls. "
+                                     + (note or "Its blocks were re-meshed."))
         except (BlockError, ValueError) as e:
             self.canvas.message.emit(f"Cannot cut the boundary layer: {e}.")
 
@@ -135,7 +136,7 @@ class LayerTool(BlockTool):
                 self._face(painter, refs, COLORS["hover"], 3.0)
                 lid = self.model.layer_at_face(bid, f)
                 text = "boundary layer (double-click to edit)" if lid else (
-                    "dashed: not a wall" if any(doc.curves[r.id].kind == REFERENCE for r in refs)
+                    "split line: not a wall" if any(doc.curves[r.id].kind != GEOMETRY for r in refs)
                     else "wall: click to pick")
                 pts = FaceEval(doc, refs)([0.5])
                 painter.drawText(self.canvas.to_screen(pts[0]) + QPointF(10, -10), text)

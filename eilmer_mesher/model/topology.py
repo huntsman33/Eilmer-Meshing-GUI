@@ -13,6 +13,7 @@ import numpy as np
 from shapely.geometry import Point, Polygon
 
 from . import geom
+from .entities import REFERENCE
 
 PARAM_TOL = 1.0e-9
 EDGE_SAMPLES = 24
@@ -79,7 +80,7 @@ def _merge(ts):
 
 class Topology:
     def __init__(self, doc):
-        curves = list(doc.curves.values())
+        curves = [c for c in doc.curves.values() if c.kind != REFERENCE]    # helpers: not meshed
         self.doc = doc
         self.size = model_size(curves)
         self.tol = 1e-8 * max(self.size, 1e-300)

@@ -4,7 +4,7 @@ the starter simulation script written on export.
 
 A solid curve's bc_tag names an entry in Document.bcs: {"class": ..., "args": ...}.
 Untagged faces get Eilmer's default, WallBC_WithSlip. The tags go into each
-grid's bcTags in geometry.lua; bcs.lua maps them to BC objects (bcDict) for
+grid's bcTags in mesh.lua; bcs.lua maps them to BC objects (bcDict) for
 `lmr prep-sim`.
 """
 import re
@@ -62,28 +62,39 @@ SIM_TEMPLATE = """\
 -- sim.lua: a starting point for simulating the grids exported by eilmer-mesher.
 -- Edit the gas model, flow states and run settings, then:
 --   lmr prep-gas -i ideal-air.lua -o ideal-air.gas   (or use your own gas file)
---   lmr prep-grids -j geometry.lua
+--   lmr prep-grids -j mesh.lua
 --   lmr prep-sim -j sim.lua
 --   lmr run
+--   lmr snapshot2vtk -a
+--   cd lmrsim/vtk && paraview fluid.pvd
+setGasModel("ideal-air.gas")
 config.solver_mode = "transient"
+config.gasdynamic_update_scheme  = "predictor-corrector"
+config.flux_calculator = "adaptive_hanel_ausmdv"
 config.dimensions = 2
 config.axisymmetric = false
-setGasModel("ideal-air.gas")
 
 -- Flow states. 'initial' fills the domain (every block has fsTag "initial");
 -- the others are referred to by the boundary conditions in bcs.lua.
-initial = FlowState:new{{p=100.0e3, T=300.0}}
-{states}
-flowDict = {{initial=initial}}
+p_inf = 1.5e3 -- Pa
+T_inf = 227.0 -- K
+M_inf = 6.0
+tmp = FlowState:new{{p=p_inf, T=T_inf}}
+u_inf = M_inf * tmp.a -- m/s
 
-dofile("bcs.lua")                 -- bcDict: the boundary-condition tags set in the GUI
+initial = FlowState:new{{p=p_inf/5.0, T=T_inf}}          -- used by all blocks (fsTag="initial")
+{states}
+
+flowDict = {{{flowdict}}}
+
+dofile("bcs.lua")               -- bcDict: the boundary-condition tags set in the GUI
 makeFluidBlocks(bcDict, flowDict)
 
-config.max_time = 1.0e-3          -- seconds
+config.max_time = 1e-3          -- seconds
 config.max_step = 100000
 config.dt_init = 1.0e-9
 config.cfl_value = 0.5
-config.dt_plot = config.max_time / 20
+config.dt_plot = config.max_time / 100
 """
 
 GAS_TEMPLATE = """\
@@ -94,12 +105,17 @@ species = {'air'}
 
 
 def sim_template(doc, tags):
-    """Starter sim.lua defining a placeholder FlowState for every name the BCs refer to."""
-    states = []
+    """Starter sim.lua: 'initial', the free-stream 'inflow' (always, ready for an inflow BC),
+    and a FlowState for every other name the BCs refer to."""
+    users = {"inflow": "-- free stream, for an inflow boundary condition"}
     for tag in tags:
         spec = doc.bcs.get(tag, {})
         for name in flow_state_names(spec.get("args", "")):
-            if name != "initial" and name not in [s.split()[0] for s in states]:
-                states.append(f"{name} = FlowState:new{{p=100.0e3, T=300.0, velx=0.0}}"
-                              f"   -- used by {spec.get('class', '?')} ({tag})")
-    return SIM_TEMPLATE.format(states="\n".join(states) or "-- (no boundary condition needs a flow state)")
+            if name != "initial" and (name not in users or name == "inflow" and "used by" not in users[name]):
+                users[name] = f"-- used by {spec.get('class', '?')} ({tag})"
+    states = {name: f"{name} = FlowState:new{{p=p_inf, T=T_inf{', velx=u_inf' if name == 'inflow' else ''}}}"
+              for name in users}
+    width = max(max(len(d) for d in states.values()) + 3, 55)   # comments line up with 'initial'
+    return SIM_TEMPLATE.format(
+        states="\n".join(states[n].ljust(width) + users[n] for n in users),
+        flowdict=", ".join(f"{n}={n}" for n in ["initial"] + list(users)))

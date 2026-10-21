@@ -14,7 +14,7 @@ import fixtures  # noqa: F401
 from test_blocking import box
 from test_sketch_gui import SketchTest, scr
 from eilmer_mesher.app import MainWindow
-from eilmer_mesher.model.entities import REFERENCE, LineSeg
+from eilmer_mesher.model.entities import SPLIT, LineSeg
 
 app = QApplication.instance() or QApplication([])
 
@@ -45,7 +45,7 @@ class TestBlockTool(SketchTest):
 
     def test_reference_line_needs_new_blocks(self):
         self.click((0, 0))
-        self.model.add_curves([LineSeg(None, kind=REFERENCE, p0=(0, -1), p1=(0, 1))], "split")
+        self.model.add_curves([LineSeg(None, kind=SPLIT, p0=(0, -1), p1=(0, 1))], "split")
         self.assertTrue(self.canvas.resolution().errors)
         self.canvas.grab()                                  # broken blocks paint (in red)
         self.click((-1, 0))

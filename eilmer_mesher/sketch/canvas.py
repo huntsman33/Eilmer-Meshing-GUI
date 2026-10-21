@@ -16,8 +16,7 @@ from PySide6.QtWidgets import QWidget
 
 from ..model import geom
 from ..model.bcs import tag_color
-from ..model.entities import REFERENCE
-from ..model.topology import Topology
+from ..model.entities import GEOMETRY, REFERENCE, SPLIT
 from ..units import Units
 from . import snapping
 from .snapping import Snap, Snapper, nice_step
@@ -33,7 +32,8 @@ COLORS = {
     "grid_major": "#d2d7dd",
     "axes": "#a3abb5",
     "geometry": "#1d2733",
-    "reference": "#9c6b30",
+    "reference": "#8a929c",            # drawing aids (dashed): ignored by the mesher
+    "split": "#9c6b30",                # block split lines (dash-dot)
     "selected": "#f28c28",
     "hover": "#1a9fd9",
     "preview": "#1a9fd9",
@@ -51,14 +51,20 @@ POINT_PX = 5
 
 
 def make_pen(color, width=1.5, dashed=False):
+    """dashed: False, True (dashed) or "dashdot"."""
     pen = QPen(QColor(color), width)
     pen.setCosmetic(True)
     pen.setCapStyle(Qt.RoundCap)
     pen.setJoinStyle(Qt.RoundJoin)
     if dashed:
         pen.setStyle(Qt.CustomDashLine)
-        pen.setDashPattern([6.0, 4.0])
+        pen.setDashPattern([9.0, 3.0, 1.5, 3.0] if dashed == "dashdot" else [6.0, 4.0])
     return pen
+
+
+def kind_style(kind):
+    """Pen dash style for a curve kind: split lines dash-dot, reference (drawing aid) lines dashed."""
+    return {REFERENCE: True, SPLIT: "dashdot"}.get(kind, False)
 
 
 @dataclass
@@ -102,14 +108,18 @@ class SketchCanvas(QWidget):
         self._pan = None
         self._pressed = set()
         self._path_cache = {}
-        self._topology = (None, None)
-        self._resolution = (None, None)
         self.mesh = None                  # live mesh (mesh.live.Mesh) to draw
         self._mesh_path = (None, None)
+        self.hidden_blocks = set()     # view only: block ids not drawn (still meshed and exported)
         self.show_blocks = True
         self.show_mesh = True
+        self.quality = None            # MeshQuality of the mesh shown (mesh/quality.py)
+        self.show_quality = False      # colour the cells by quality (heat-map)
+        self.quality_metric = "skew"   # "skew" or "ar"
+        self._quality_paths = (None, [])
         self.units = Units()
         self.show_regions = False
+        self.show_grid = True
         self.hold_keys = {"horizontal": Qt.Key_H, "vertical": Qt.Key_V}
         self.held = set()
         self.setMouseTracking(True)
@@ -158,19 +168,10 @@ class SketchCanvas(QWidget):
         return nice_step(self.px(14) / f) * f
 
     def topology(self):
-        rev, topo = self._topology
-        if rev != self.model.revision:
-            topo = Topology(self.model.doc)
-            self._topology = (self.model.revision, topo)
-        return topo
+        return self.model.topology()          # cached per revision by the model
 
     def resolution(self):
-        from ..model import blocking
-        rev, res = self._resolution
-        if rev != self.model.revision:
-            res = blocking.resolve(self.model.doc, self.topology())
-            self._resolution = (self.model.revision, res)
-        return res
+        return self.model.resolution()
 
     def set_mesh(self, mesh):
         self.mesh = mesh
@@ -254,6 +255,12 @@ class SketchCanvas(QWidget):
 
     # --- dimensions -------------------------------------------------------------------
     def dimension_text(self, dim):
+        if dim.curve2 is not None:                      # distance or angle between two lines
+            from ..model import dimensions
+            value = dimensions.value(self.model.doc, dim)
+            if dim.kind == "distance":
+                return f"{self.units.to_display(value):.6g} {self.units.name}"
+            return f"{value:.6g}\N{DEGREE SIGN}"
         c = self.model.doc.curves[dim.curve]
         if dim.kind == "length":
             value = self.units.to_display(math.dist(c.p0, c.p1))
@@ -264,7 +271,7 @@ class SketchCanvas(QWidget):
     def dimension_layout(self, dim, offset=None):
         """Screen-space drawing of a dimension: polylines, arrows (tip, direction), text, label rect."""
         c = self.model.doc.curves.get(dim.curve)
-        if c is None:
+        if c is None or any(i not in self.model.doc.curves for i in dim.curve_ids()):
             return None
         offset = dim.offset if offset is None else offset
         S = lambda p: self.to_screen((float(p[0]), float(p[1])))
@@ -274,7 +281,12 @@ class SketchCanvas(QWidget):
             return QPointF(v.x() / n, v.y() / n) if n > 0 else QPointF(0.0, 0.0)
 
         polylines, arrows = [], []
-        if dim.kind == "length":
+        if dim.curve2 is not None:
+            drawn = self._two_line_layout(dim, offset, S, unit)
+            if drawn is None:
+                return None
+            polylines, arrows, anchor = drawn
+        elif dim.kind == "length":
             p0, p1 = np.asarray(c.p0, float), np.asarray(c.p1, float)
             d = p1 - p0
             L = float(np.hypot(*d))
@@ -308,6 +320,54 @@ class SketchCanvas(QWidget):
         rect = QRectF(0, 0, box.width() + 8, box.height() + 4)
         rect.moveCenter(anchor)
         return {"polylines": polylines, "arrows": arrows, "text": text, "rect": rect}
+
+    def _two_line_layout(self, dim, offset, S, unit):
+        """(polylines, arrows, label anchor) of a distance or angle between two lines, or None."""
+        from ..model import dimensions
+        a, b = self.model.doc.curves[dim.curve], self.model.doc.curves[dim.curve2]
+        if a.type != "line" or b.type != "line" or a.p0 == a.p1 or b.p0 == b.p1:
+            return None
+        polylines = []
+
+        def extend(line, base, ray, target):
+            """Extension line from the nearer end of a line to target (base + ray * t)."""
+            ts = [float((np.asarray(q, float) - base) @ ray) for q in (line.p0, line.p1)]
+            t = float((target - base) @ ray)
+            if min(ts) - 1e-12 <= t <= max(ts) + 1e-12:
+                return                                   # the target is on the line itself
+            P = S(line.p0 if abs(ts[0] - t) < abs(ts[1] - t) else line.p1)
+            Q = S(target)
+            out = unit(Q - P)
+            polylines.append([P + out * 3.0, Q + out * 6.0])
+
+        if dim.kind == "distance":
+            u, n = dimensions.direction(a), dimensions.normal(a)
+            p0 = np.asarray(a.p0, float)
+            A = p0 + u * offset
+            B = A + n * dimensions.signed_distance(a, b)
+            extend(a, p0, u, A)
+            extend(b, p0, u, B)
+            SA, SB = S(A), S(B)
+            polylines.append([SA, SB])
+            along = unit(SB - SA)
+            return polylines, [(SA, along * -1.0), (SB, along)], (SA + SB) / 2.0
+        v = dimensions.vertex(a, b)
+        if v is None:
+            return None
+        rd = offset if offset > 0 else self.px(30)
+        r1, _ = dimensions.sector_rays(a, b, dim.sector)
+        sweep = dimensions.signed_sector_angle(a, b, dim.sector)
+        th = math.atan2(r1[1], r1[0]) + sweep * np.linspace(0.0, 1.0, 41)
+        ring = [S(v + rd * np.array([math.cos(t), math.sin(t)])) for t in th]
+        polylines.append(ring)
+        for line, t in ((a, th[0]), (b, th[-1])):
+            ray = np.array([math.cos(t), math.sin(t)])
+            extend(line, v, ray, v + ray * rd)
+        arrows = [(ring[0], unit(ring[0] - ring[1])), (ring[-1], unit(ring[-1] - ring[-2]))]
+        tm = th[0] + sweep / 2.0
+        um = np.array([math.cos(tm), math.sin(tm)])
+        anchor = S(v + um * rd) + unit(S(v + um * 2.0 * rd) - S(v)) * 12.0
+        return polylines, arrows, anchor
 
     def paint_dimension(self, p, dim, color, offset=None):
         layout = self.dimension_layout(dim, offset)
@@ -391,7 +451,7 @@ class SketchCanvas(QWidget):
 
     def draw_curve(self, painter, curve, color, width=1.5, dashed=None, cache=False):
         if dashed is None:
-            dashed = curve.kind == REFERENCE
+            dashed = kind_style(curve.kind)
         painter.setPen(make_pen(color, width, dashed))
         painter.drawPath(self.curve_path(curve, cache))
 
@@ -413,6 +473,9 @@ class SketchCanvas(QWidget):
             self._paint_regions(p)
         if self.show_blocks and self.model.doc.blocks:
             self._paint_block_fills(p)
+            self._paint_hidden_outlines(p)
+        if self.show_quality and self.quality is not None and self.mesh is not None:
+            self._paint_quality(p)
         if self.show_mesh and self.mesh is not None:
             self._paint_mesh(p)
         sel = self.model.selection
@@ -421,10 +484,10 @@ class SketchCanvas(QWidget):
                 color, width = COLORS["selected"], 2.5
             elif cid == self.hover_id:
                 color, width = COLORS["hover"], 2.5
-            elif c.bc_tag and c.kind != REFERENCE and c.bc_tag in self.model.doc.bcs:
+            elif c.bc_tag and c.kind == GEOMETRY and c.bc_tag in self.model.doc.bcs:
                 color, width = tag_color(self.model.doc, c.bc_tag), 2.6
             else:
-                color = COLORS["reference"] if c.kind == REFERENCE else COLORS["geometry"]
+                color = {REFERENCE: COLORS["reference"], SPLIT: COLORS["split"]}.get(c.kind, COLORS["geometry"])
                 width = 1.5
             self.draw_curve(p, c, color, width, cache=True)
         if self.tool is not None:
@@ -440,11 +503,101 @@ class SketchCanvas(QWidget):
             self.tool.paint_overlay(p)
         self._paint_snap(p)
         self._paint_bc_legend(p)
+        if self.show_quality and self.quality is not None:
+            self._paint_quality_legend(p)
+
+    # --- cell quality heat-map ------------------------------------------------------
+    QUALITY_BUCKETS = 10
+
+    def set_quality(self, quality):
+        self.quality = quality
+        self.update()
+
+    def _quality_value(self, metrics, block):
+        """0 (good) .. 1 (at or past the limit) per cell for the chosen metric, NaN if not judged."""
+        if self.quality_metric == "skew":
+            return metrics["skew"]
+        limit = self.quality.thresholds["ar_warn"]
+        if not block.check_ar:
+            return np.full(metrics["ar"].shape, np.nan)        # thin by design (boundary layer)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return np.clip(np.log(metrics["ar"]) / np.log(limit), 0.0, 1.0)
+
+    @staticmethod
+    def _ramp(v):
+        """Green -> yellow -> red."""
+        stops = [(0.0, (46, 157, 87)), (0.5, (241, 196, 15)), (1.0, (212, 63, 58))]
+        for (t0, c0), (t1, c1) in zip(stops, stops[1:]):
+            if v <= t1:
+                f = (v - t0) / (t1 - t0)
+                return QColor(*[round(a + f * (b - a)) for a, b in zip(c0, c1)], 150)
+        return QColor(*stops[-1][1], 150)
+
+    def _paint_quality(self, p):
+        key = (id(self.quality), id(self.mesh), self.quality_metric, self.hidden_ids())
+        if self._quality_paths[0] != key:
+            n = self.QUALITY_BUCKETS
+            paths = [QPainterPath() for _ in range(n + 2)]       # buckets, inverted, not judged
+            for bid, xyz in self.visible_grids():
+                m = self.quality.metrics.get(bid)
+                block = self.quality.blocks.get(bid)
+                if m is None or m["skew"].shape != (xyz.shape[0] - 1, xyz.shape[1] - 1):
+                    continue
+                v = self._quality_value(m, block)
+                P = xyz[:, :, :2]
+                for i in range(P.shape[0] - 1):
+                    for j in range(P.shape[1] - 1):
+                        if m["inverted"][i, j]:
+                            k = n
+                        elif np.isnan(v[i, j]):
+                            k = n + 1
+                        else:
+                            k = min(int(v[i, j] * n), n - 1)
+                        paths[k].addPolygon(QPolygonF([QPointF(*P[i, j]), QPointF(*P[i + 1, j]),
+                                                       QPointF(*P[i + 1, j + 1]), QPointF(*P[i, j + 1])]))
+            colours = [self._ramp((k + 0.5) / n) for k in range(n)] + [QColor(140, 30, 160, 200),
+                                                                       QColor(160, 160, 160, 70)]
+            self._quality_paths = (key, list(zip(paths, colours)))
+        p.setPen(Qt.NoPen)
+        for path, colour in self._quality_paths[1]:
+            if not path.isEmpty():
+                p.setBrush(colour)
+                p.drawPath(path)
+        p.setBrush(Qt.NoBrush)
+
+    def _paint_quality_legend(self, p):
+        t = self.quality.thresholds
+        if self.quality_metric == "skew":
+            title, lo, hi = "Skewness", "0", "1"
+        else:
+            title, lo, hi = "Aspect ratio", "1", f"{t['ar_warn']:g}+"
+        w, h = 160, 10
+        x, y = self.width() - w - 16, self.height() - 52
+        bg = QColor(COLORS["background"])
+        bg.setAlpha(220)
+        p.setPen(Qt.NoPen)
+        p.setBrush(bg)
+        p.drawRect(QRectF(x - 8, y - 22, w + 16, 58))
+        for k in range(w):
+            p.setBrush(self._ramp(k / (w - 1)))
+            p.drawRect(QRectF(x + k, y, 1.2, h))
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QColor(COLORS["mesh"]))
+        p.drawText(QPointF(x, y - 6), title + ("" if self.quality_metric == "skew"
+                                               else "   (grey: boundary layer)"))
+        p.drawText(QPointF(x, y + h + 14), lo)
+        p.drawText(QPointF(x + w - QFontMetricsF(self.font()).horizontalAdvance(hi), y + h + 14), hi)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(140, 30, 160, 200))
+        p.drawRect(QRectF(x + w / 2 - 34, y + h + 5, 9, 9))
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QColor(COLORS["mesh"]))
+        p.drawText(QPointF(x + w / 2 - 21, y + h + 14), "inverted")
 
     def _paint_bc_legend(self, p):
         doc = self.model.doc
         used = sorted({c.bc_tag for c in doc.curves.values()
-                       if c.bc_tag in doc.bcs and c.kind != REFERENCE})
+                       if c.bc_tag in doc.bcs and c.kind == GEOMETRY})
         if not used:
             return
         rows = [(tag_color(doc, t), f"{t}   {doc.bcs[t]['class']}") for t in used]
@@ -467,6 +620,8 @@ class SketchCanvas(QWidget):
             p.drawText(QRectF(box.left() + 30, y - h / 2, w, h), Qt.AlignVCenter | Qt.AlignLeft, text)
 
     def _paint_grid(self, p):
+        if not self.show_grid:
+            return
         step = self.grid_step()
         mant = round(step / 10 ** math.floor(math.log10(step)))
         major = step * (2 if mant == 5 else 5)
@@ -510,22 +665,74 @@ class SketchCanvas(QWidget):
         res = self.resolution()
         p.setPen(Qt.NoPen)
         for bid, poly in res.polygons.items():
+            if bid in self.hidden_blocks:
+                continue
             color = QColor(COLORS["block_error"] if bid in res.errors else COLORS["block"])
             color.setAlpha(55 if bid in res.errors else 28)
             p.setBrush(color)
             p.drawPolygon(QPolygonF([QPointF(x, y) for x, y in poly]))
         p.setBrush(Qt.NoBrush)
 
+    # --- hidden blocks (view only) ----------------------------------------------------
+    def hidden_ids(self):
+        """Hidden block ids that still exist (stale ids are ignored), as a frozenset."""
+        if not self.hidden_blocks:
+            return frozenset()
+        return frozenset(self.hidden_blocks & set(self.resolution().polygons))
+
+    def visible_grids(self):
+        """The (block id, xyz) mesh grids that are drawn."""
+        hidden = self.hidden_ids()
+        return [(b, g) for b, g in self.mesh.grids if b not in hidden] if self.mesh is not None else []
+
+    def set_blocks_hidden(self, ids, hidden):
+        ids = set(ids)
+        self.hidden_blocks = (self.hidden_blocks | ids) if hidden else (self.hidden_blocks - ids)
+        self.update()
+
+    def all_block_ids(self):
+        return list(self.resolution().polygons)
+
+    def toggle_blocks_hidden(self, ids):
+        """Hide the blocks, or show them if they are all hidden already."""
+        ids = set(ids)
+        self.set_blocks_hidden(ids, not ids <= self.hidden_ids())
+
+    def block_visibility_menu(self, menu, bid):
+        """Add the hide / show items for a click on block bid (None: outside any block)."""
+        hidden = self.hidden_ids()
+        if bid is not None and bid in hidden:
+            menu.addAction("Show block", lambda: self.set_blocks_hidden({bid}, False))
+        elif bid is not None:
+            menu.addAction("Hide block", lambda: self.set_blocks_hidden({bid}, True))
+            menu.addAction("Hide all blocks", lambda: self.set_blocks_hidden(self.all_block_ids(), True))
+        if hidden:
+            menu.addAction("Show all blocks", lambda: self.set_blocks_hidden(set(self.hidden_blocks), False))
+
+    def _paint_hidden_outlines(self, p):
+        hidden = self.hidden_ids()
+        if not hidden:
+            return
+        res = self.resolution()
+        color = QColor(COLORS["block"])
+        color.setAlpha(110)
+        p.setPen(make_pen(color.name(QColor.HexArgb), 1.0, dashed=True))
+        for bid in hidden:
+            poly = res.polygons[bid]
+            if len(poly) >= 3:
+                p.drawPolygon(QPolygonF([QPointF(x, y) for x, y in poly]))
+
     def _paint_mesh(self, p):
         key, path = self._mesh_path
-        if key is not self.mesh:
+        hidden = self.hidden_ids()
+        if key is None or key[0] is not self.mesh or key[1] != hidden:
             path = QPainterPath()
-            for _, g in self.mesh.grids:
+            for _, g in self.visible_grids():
                 for line in list(g[:, :, :2]) + list(g[:, :, :2].transpose(1, 0, 2)):
                     path.moveTo(*line[0])
                     for x, y in line[1:]:
                         path.lineTo(x, y)
-            self._mesh_path = (self.mesh, path)
+            self._mesh_path = ((self.mesh, hidden), path)
         color = QColor(COLORS["mesh"])
         color.setAlpha(150 if self.mesh.source == "eilmer" else 90)
         pen = make_pen(color.name(QColor.HexArgb), 0.8)
@@ -538,7 +745,7 @@ class SketchCanvas(QWidget):
         res = self.resolution()
         blocks = res.by_id()
         for bid, poly in res.polygons.items():
-            if len(poly) < 3:
+            if len(poly) < 3 or bid in self.hidden_blocks:
                 continue
             c = Polygon(poly).representative_point()
             if bid in res.errors:
@@ -546,6 +753,10 @@ class SketchCanvas(QWidget):
             else:
                 b = blocks[bid]
                 text, color = f"{bid}  {b.niv - 1} x {b.njv - 1}", COLORS["mesh"]
+                if b.patch == "AOPatch":
+                    text += "  AO"
+                if b.smoothing:
+                    text += "  smoothed"
                 if bid in res.warnings:
                     text += "  (!)"
                     color = COLORS["block_error"]
@@ -749,7 +960,8 @@ class SketchCanvas(QWidget):
 
     def keyPressEvent(self, ev):
         key = ev.key()
-        if key in self.hold_keys.values() and not (ev.modifiers() & Qt.ControlModifier):
+        if (key in self.hold_keys.values() and not (ev.modifiers() & Qt.ControlModifier)
+                and not (self.tool is not None and self.tool.claims_hold(key))):
             if not ev.isAutoRepeat():
                 self.held.add(key)
                 self._refresh_cursor()

@@ -1,5 +1,5 @@
 """
-Sub-divide a region into quadrilateral regions by adding dashed reference curves.
+Sub-divide a region into quadrilateral regions by adding block split curves.
 The blocks are then made from the new regions in the usual way.
 
   split_nxm       iso-parameter lines of the region's Coons patch
@@ -16,7 +16,7 @@ from shapely.geometry import Polygon
 
 from . import blocking, geom
 from .document import FACES, Block, BlockError
-from .entities import REFERENCE, LineSeg, SplineSeg
+from .entities import SPLIT, LineSeg, SplineSeg
 
 
 def _patch(topo, region, corners=None):
@@ -29,15 +29,15 @@ def _patch(topo, region, corners=None):
 
 
 def _curve_through(pts):
-    """A reference line if the points are collinear, otherwise a spline through them."""
+    """A split line if the points are collinear, otherwise a spline through them."""
     pts = np.asarray(pts, float)
     a, b = pts[0], pts[-1]
     d = b - a
     L = float(np.hypot(*d))
     off = np.abs((pts[:, 0] - a[0]) * d[1] - (pts[:, 1] - a[1]) * d[0]) / max(L, 1e-300)
     if off.max() <= 1e-9 * max(L, 1e-300):
-        return LineSeg(None, kind=REFERENCE, p0=tuple(a), p1=tuple(b))
-    return SplineSeg(None, kind=REFERENCE, points=[tuple(p) for p in pts])
+        return LineSeg(None, kind=SPLIT, p0=tuple(a), p1=tuple(b))
+    return SplineSeg(None, kind=SPLIT, points=[tuple(p) for p in pts])
 
 
 def _iso(patch, rs, n=17):
@@ -93,7 +93,7 @@ def ogrid_hole(topo, region):
         if not hits:
             return _ogrid_hole_by_corners(topo, region, outer)
         hit = min(hits, key=lambda p: math.dist(p, corner))
-        spokes.append(LineSeg(None, kind=REFERENCE, p0=corner, p1=hit))
+        spokes.append(LineSeg(None, kind=SPLIT, p0=corner, p1=hit))
     return spokes
 
 
@@ -113,7 +113,7 @@ def _ogrid_hole_by_corners(topo, region, outer):
         return sum(abs((ang(po[k]) - ang(ph[(k + shift) % 4]) + math.pi) % (2 * math.pi) - math.pi)
                    for k in range(4))
     shift = min(range(4), key=cost)
-    return [LineSeg(None, kind=REFERENCE, p0=tuple(po[k]), p1=tuple(ph[(k + shift) % 4])) for k in range(4)]
+    return [LineSeg(None, kind=SPLIT, p0=tuple(po[k]), p1=tuple(ph[(k + shift) % 4])) for k in range(4)]
 
 
 def centroid_split(topo, region):
@@ -131,5 +131,5 @@ def centroid_split(topo, region):
     for k, c in enumerate(corners):
         side = loop.refs(c, corners[(k + 1) % len(corners)])
         mid = FaceEval(topo.doc, side)([0.5])[0]
-        curves.append(LineSeg(None, kind=REFERENCE, p0=tuple(mid), p1=g))
+        curves.append(LineSeg(None, kind=SPLIT, p0=tuple(mid), p1=g))
     return curves

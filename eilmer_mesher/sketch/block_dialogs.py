@@ -36,9 +36,11 @@ class EdgeCellsDialog(QDialog):
                 if kind == "roberts" and (e0, e1) == ends:
                     self.spacing.setCurrentIndex(k)
             self.beta.setValue(spec.get("beta", 1.05))
-        elif spec and spec.get("type") == "Growth":
+        elif spec and spec.get("type") in ("Growth", "Grade"):
             self.spacing.setCurrentIndex(5 if spec.get("reverse") else 4)
             self.first.setText(f"{self.units.to_display(spec['first']):.6g}")
+        # A boundary layer's outer edge grows only up to a size, then stays uniform: keep that.
+        self._grade = spec.get("growth") if spec and spec.get("type") == "Grade" else None
         self.opposite = QCheckBox("Also the opposite edge of this block")
         self.opposite.setChecked(True)
         self.spacing.currentIndexChanged.connect(self._enable)
@@ -90,6 +92,8 @@ class EdgeCellsDialog(QDialog):
             if not first > 0:
                 raise ValueError("the first cell height must be positive")
             spec = {"type": "Growth", "first": first, "reverse": end1}
+            if self._grade:
+                spec = {"type": "Grade", "first": first, "growth": self._grade, "reverse": end1}
         return self.cells.value(), spec, self.opposite.isChecked()
 
 
@@ -115,3 +119,32 @@ class SplitDialog(QDialog):
 
     def values(self):
         return self.n.value(), self.m.value()
+
+
+class AOPatchDialog(QDialog):
+    """Eilmer AOPatch: an area-orthogonality patch built on an nx x ny background mesh."""
+
+    def __init__(self, nx=10, ny=10, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("AOPatch")
+        self.nx = QSpinBox()
+        self.nx.setRange(2, 200)
+        self.nx.setValue(nx)
+        self.ny = QSpinBox()
+        self.ny.setRange(2, 200)
+        self.ny.setValue(ny)
+        form = QFormLayout()
+        form.addRow("Background mesh nx", self.nx)
+        form.addRow("Background mesh ny", self.ny)
+        note = QLabel("AOPatch smooths the interior towards area-orthogonal cells; it can untangle blocks\n"
+                      "with strongly curved sides. The preview shows a CoonsPatch until Eilmer's mesh arrives.")
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(note)
+        layout.addWidget(buttons)
+
+    def values(self):
+        return {"nx": self.nx.value(), "ny": self.ny.value()}

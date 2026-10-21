@@ -2,7 +2,7 @@
 
 Sketch 2D geometry and build block-structured grids for the
 [Eilmer](https://gdtk.uqcloud.net/) compressible-flow solver. The GUI writes a
-`geometry.lua` that Eilmer runs directly, so the mesh you see is the one Eilmer builds.
+`mesh.lua` that Eilmer runs directly, so the mesh you see is the one Eilmer builds.
 
 Status: sketching, blocking, the live Eilmer mesh, boundary conditions and export
 work. Mesh-quality checks and refinement are next.
@@ -34,12 +34,14 @@ Default keys (change them under Edit → Keyboard shortcuts; they are saved):
 | T | Triangle | |
 | B | Bezier | Click control points; right-click or Enter to finish |
 | N | Spline | Click points to pass through; right-click or Enter to finish |
-| D | Dimension | Click a line (length) or arc (angle), move to place, click. Type a value while placing to set it. Double-click a dimension to change it, which drives the curve; drag its label to move it. Dimensions show the current value and follow the geometry (no constraint solver yet). |
+| D | Dimension | Click a line (length) or arc (angle), move to place, click. Click a line and then a second line for the distance between parallel lines, or the angle between non-parallel ones (about their common end or crossing point; the sector you place it in picks the angle or its supplement); editing these moves the second line. Type a value while placing to set it. Double-click a dimension to change it, which drives the curve; drag its label to move it. Dimensions show the current value and follow the geometry (no constraint solver yet). |
 | M | Move | Click objects to collect them, then drag from any point to its destination (snaps apply to both). Type `dx, dy` to move exactly. |
 | Q | Quick trim | Click the piece of a curve to delete it, up to where it meets other curves |
 | J | Merge | Click connected pieces, then Enter: joins collinear lines, arcs of one circle (under 180° in total) and pieces of one spline |
-| Shift+M | Mirror | Click objects, Enter, click the symmetry axis (a solid or dashed line, or the x / y axis), Enter. Makes mirrored copies. |
-| X | Reference mode | New curves are dashed (block splitters, not geometry). Shift+X converts the selection. |
+| Shift+M | Mirror | Click objects, Enter, click the symmetry axis (any line, or the x / y axis), Enter. Makes mirrored copies. |
+| F | Offset | Click curves, Enter: set the distance and side (previewed, with an arrow) and OK. Makes offset copies; connected curves are offset together with exact joins (lines mitred, arcs concentric, other corners rounded). Closed shapes grow, or shrink with Reverse; open curves go to the left of their direction. |
+| Ctrl+Shift+X | Reference mode | New curves are dashed reference lines: drawing aids (axes, construction) that the mesher ignores. Shift+X converts the selected curves between solid and reference. |
+| Ctrl+X | Split-line mode | New curves are dash-dot block split lines: the interfaces between blocks. X converts the selected curves between solid and split lines. |
 | hold H / V | | Force the line horizontal / vertical while held |
 | G | Grid snap | Other snaps (point, endpoint, intersection, centre, midpoint, on curve, horizontal/vertical) are in the snap menu |
 | Shift+R | Show regions | Shades each closed region (what blocking will work from) |
@@ -60,11 +62,17 @@ leading edge (so it can be a block corner) and a trailing-edge closing line.
 |---|---|
 | K | Block tool: click a closed region to make a block over it (its four sharpest corners). Double-click a block edge to set its cells and clustering. Right-click to sub-divide, set corners or delete. |
 | Y | Boundary-layer tool: click block walls, Enter cuts a thin wall-clustered layer along them. Double-click a wall for the settings (first cell height or y+, growth ratio, cells). |
+| H / Shift+H | Hide / show the selected block (or the one under the cursor) / all blocks (view only; hidden blocks are still meshed and exported). Right-click a block for Hide / Show block and Hide / Show all blocks. |
 | Shift+K | Block all regions (also replaces blocks broken by sketch changes) |
+| Ctrl+R | Refine: smooth (or AOPatch) the blocks the quality check flags |
+| Shift+Q | Show cell quality (heat-map) |
 | F5 | Run Eilmer now |
 | Shift+B / Shift+N | Show blocks / show mesh |
+| Shift+G | Show or hide the background grid |
 
-- Dashed reference lines split regions, so they become the interfaces between blocks.
+- Dash-dot **split lines** divide regions, so they become the interfaces between blocks. Dashed
+  **reference lines** are drawing aids only: the mesher ignores them. (Projects saved before this
+  change had dashed block splitters; they are converted to split lines when opened.)
   Blocks follow the sketch: drag geometry and they re-mesh.
 - Sub-divide: **Split N × M** (iso-parameter lines of the region), **O-grid** (an inner
   block plus four around it, e.g. a disc), **O-grid around hole** (four blocks around an
@@ -80,15 +88,39 @@ leading edge (so it can be a block corner) and a trailing-edge closing line.
   (for example a region that no longer exists, or a face that only partly matches its
   neighbour's).
 
+## Mesh quality and refinement
+- Every new mesh (the preview, then Eilmer's) is checked cell by cell:
+  - **equiangle skewness**: 0 for rectangles, 1 for degenerate cells;
+  - **aspect ratio**: longest edge over shortest;
+  - **inverted cells**: folded or tangled.
+- Blocks with boundary-layer spacing are thin by design, so their aspect ratio isn't checked.
+- Problems show in a banner above the canvas. The limits are under View > Quality thresholds
+  (defaults: warn above skewness 0.6, refine above 0.85, warn above aspect ratio 20).
+- **Refine** (banner button, Block > Refine flagged blocks, Ctrl+R) applies Laplace smoothing
+  to the flagged blocks, as in the wk7 tutorial. The smoothing runs in the generated Lua, and the
+  preview reproduces it exactly.
+  - Where smoothing would fold cells, as it does beside a concave side, Refine gives that block
+    Eilmer's AOPatch instead.
+  - If smoothing leaves bad cells, the banner offers **Try AOPatch**; after that it suggests
+    sub-dividing the block.
+  - Boundary-layer blocks are never smoothed.
+- **Show cells** (Shift+Q) colours each cell by skewness or aspect ratio (View > Quality metric),
+  with inverted cells in purple.
+- The Block tool's right-click **Patch** menu sets any block to CoonsPatch, CoonsPatch with
+  Laplace smoothing, or AOPatch (nx, ny). Block labels show "smoothed" or "AO".
+
 ## Boundary layers
 - With the boundary-layer tool (Y), click the block walls to resolve, then press Enter. Each
-  wall's block is cut by a dashed curve parallel to the wall (a concentric arc for arcs, a line
+  wall's block is cut by a split line parallel to the wall (a concentric arc for arcs, a line
   for lines, otherwise a spline) at the layer thickness
   `delta = h (r^N - 1) / (r - 1)`: first cell height h, growth ratio r, N cells across.
-- The thin block gets N cells growing from h at the wall. The outer block grades on from the
-  last layer cell, taking more cells if it needs them to grow no faster than the layer.
-  Counts and clustering along the wall are kept.
-- The cut continues through neighbouring blocks across dashed lines, so their faces still
+- The thin block gets N cells growing from h at the wall. The outer block keeps the cells the
+  block had; the status bar says how much bigger they are than the last layer cell, and how
+  many more layer cells would meet them smoothly. Optionally ("grade the outer blocks") the outer
+  block grows from the last layer cell, at no more than the layer's ratio, up to its original
+  cell size and stays uniform beyond, adding cells as needed; with a large size jump that
+  growth fills most of the block. Counts and clustering along the wall are kept.
+- The cut continues through neighbouring blocks across split lines, so their faces still
   match. All the blocks it touches are re-blocked automatically.
 - The walls are tagged as no-slip walls. Untagged and slip-wall curves get an existing no-slip
   tag, or a new `wall` tag (`WallBC_NoSlip_Adiabatic`; change it to `WallBC_NoSlip_FixedT`
@@ -97,8 +129,8 @@ leading edge (so it can be a block corner) and a trailing-edge closing line.
   Double-click a wall without a layer to set the defaults for the next one. The dialog estimates h
   from a target y+ (turbulent flat plate, Cf = 0.026 Re_x^-1/7).
 - The same "first cell height" spacing is available for any edge in the Block tool's edge dialog.
-  It goes to Eilmer as a `LuaFnClustering` (Eilmer's own GeometricFunction can fail to construct
-  for some inputs).
+  These spacings go to Eilmer through `LuaFnClustering` (Eilmer's own GeometricFunction can fail
+  to construct for some inputs).
 
 ## Boundary conditions and export
 - Right-click solid curves (Select tool) or a block edge (Block tool), then
@@ -106,15 +138,15 @@ leading edge (so it can be a block corner) and a trailing-edge closing line.
   Eilmer class (inflow, outflow, walls; with suitable default arguments) and a tag name.
   Untagged curves are inviscid slip walls (Eilmer's default). Block → Boundary conditions
   (Ctrl+B) lists, edits, renames and deletes tags. Tagged curves are coloured, with a legend.
-- Blocks are joined only across dashed reference lines. A solid curve between two blocks
+- Blocks are joined only across split lines. A solid curve between two blocks
   stays a wall on both sides (a splitter plate, for example).
 - **File → Export to Eilmer** (Ctrl+E) writes into a folder you choose:
-  - `geometry.lua`: the grids, their BC tags and connections
+  - `mesh.lua`: the grids, their BC tags and connections
   - `bcs.lua`: `bcDict`, mapping each tag to its Eilmer BC
   - `sim.lua` and `ideal-air.lua`: a starter simulation script (with a placeholder flow state for
     each name the BCs use) and gas-model input, written only if they do not exist yet
 
-  then runs `lmr prep-grids -j geometry.lua` there and reports the result. Next:
+  then runs `lmr prep-grids -j mesh.lua` there and reports the result. Next:
   ```
   lmr prep-gas -i ideal-air.lua -o ideal-air.gas
   lmr prep-sim -j sim.lua
@@ -124,12 +156,12 @@ leading edge (so it can be a block corner) and a trailing-edge closing line.
 ## How it works
 - A project (`*.emesh.json`) holds curves (line, arc, Bezier, spline), construction points, blocks
   (four faces, each an ordered list of curves) and BC tags. It is the source of truth.
-- `eilmer_mesher.lua.codegen` turns it into one `geometry.lua` that runs under both:
-  - `lmr prep-grids -j geometry.lua`: registers the grids and connects them across reference lines
-  - `lmr custom-script -j geometry.lua`: writes `preview/blk-NNNN.vtk` for the GUI
+- `eilmer_mesher.lua.codegen` turns it into one `mesh.lua` that runs under both:
+  - `lmr prep-grids -j mesh.lua`: registers the grids and connects them across split lines
+  - `lmr custom-script -j mesh.lua`: writes `preview/blk-NNNN.vtk` for the GUI
 - Curve parameters match Eilmer's, so a trimmed spline is written as a `SubRangedPath`
   that ends exactly where the sketch shows it.
-- Dashed (reference) curves are internal block interfaces and are never BC-tagged.
+- Split lines are internal block interfaces and reference lines are drawing aids; neither is BC-tagged.
   Untagged solid faces use Eilmer's default, `WallBC_WithSlip`.
 - `bcs.lua` is a `bcDict` stub to paste into the job script.
 - Block options: `CoonsPatch` (default) or `AOPatch`, plus optional Laplace smoothing
@@ -147,7 +179,7 @@ doc = Document.load("project.emesh.json")
 res = blocking.resolve(doc, Topology(doc))   # region blocks -> concrete faces; res.errors explains failures
 mesh_doc = doc.with_blocks(res.blocks)
 result = preview_mesh(mesh_doc, ".emesh")    # result.grids: list of (niv, njv, 3) arrays
-export_grids(mesh_doc, "path/to/sim")        # writes geometry.lua, bcs.lua; runs lmr prep-grids
+export_grids(mesh_doc, "path/to/sim")        # writes mesh.lua, bcs.lua; runs lmr prep-grids
 ```
 
 ## Tests

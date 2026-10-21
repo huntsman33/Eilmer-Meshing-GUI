@@ -6,15 +6,16 @@ Applying a layer to some walls (block faces on solid curves):
 
   1. offsets each wall into its block by the layer thickness
          delta = h (r^N - 1) / (r - 1)       h first cell, r growth ratio, N cells
-     as a dashed reference curve (a concentric arc for arcs, a line for lines,
+     as a block split curve (a concentric arc for arcs, a line for lines,
      otherwise a spline) ending on the block's two side faces, delta along them
      from the wall;
-  2. continues each cut through neighbouring blocks across dashed lines, along an
+  2. continues each cut through neighbouring blocks across split lines, along an
      iso-line of the neighbour's Coons patch, so every interface still matches face
      to face; it stops at solid curves or where it closes on itself;
   3. re-blocks the split regions: across the layer N cells with the first one h at
-     the wall; the outer part grades out from the last layer cell; along the wall,
-     the counts and clustering of the block each piece came from.
+     the wall; the outer part grows from the last layer cell up to the block's
+     original cell size and is uniform beyond; along the wall, the counts and
+     clustering of the block each piece came from.
 
 Its walls are tagged as no-slip walls (a viscous layer on a slip wall makes no sense):
 untagged and slip-wall curves get an existing no-slip tag, or a new "wall" tag
@@ -33,7 +34,7 @@ from shapely.geometry import Point, Polygon
 from . import blocking
 from . import geom
 from .document import FACES, Block, BlockError, CurveRef
-from .entities import REFERENCE, ArcSeg
+from .entities import GEOMETRY, SPLIT, ArcSeg
 
 # wall face -> (side face at the wall's start, at its end), each with whether it runs away from the wall
 SIDES = {
@@ -86,6 +87,26 @@ def growth_values(r, n, t, reverse=False):
     return 1.0 - x if reverse else x
 
 
+def graded_values(first, growth, n):
+    """
+    Vertex positions (0..1) of n cells that start at `first` (a fraction of the edge)
+    and grow by `growth` until they reach the uniform size that fills the rest. When
+    even growing all the way cannot fill the edge, a steeper geometric growth is used.
+    """
+    if n * first >= 1.0:
+        return np.linspace(0.0, 1.0, n + 1)
+    k, filled, cell = 0, 0.0, first
+    while k < n and (1.0 - filled) / (n - k) > cell:
+        filled += cell
+        cell *= growth
+        k += 1
+    if k == n:
+        return growth_values(growth_ratio(first, n), n, np.linspace(0.0, 1.0, n + 1))
+    sizes = [first * growth ** i for i in range(k)] + [(1.0 - filled) / (n - k)] * (n - k)
+    x = np.concatenate([[0.0], np.cumsum(sizes)])
+    return x / x[-1]
+
+
 def first_cell_height(yplus, velocity, density, viscosity, length):
     """Wall spacing for a y+ target, using the turbulent flat-plate skin friction
     Cf = 0.026 Re_x^(-1/7) at x = length."""
@@ -101,13 +122,19 @@ def concrete_cluster(doc, block, face):
     """
     A face's clustering as Lua and the preview use it. A "Growth" spec (first cell
     height in metres, from the start, or from the end if reverse) becomes a ratio
-    for the face's actual length and cell count, so it survives count changes.
+    for the face's actual length and cell count, so it survives count changes. A
+    "Grade" spec (first cell, growth limit) becomes a table of vertex positions.
     """
     spec = block.cluster.get(face)
-    if not spec or spec.get("type") != "Growth":
+    if not spec or spec.get("type") not in ("Growth", "Grade"):
         return spec
     n = (block.niv if face in ("south", "north") else block.njv) - 1
     length = blocking.face_length(doc, block.sides[face])
+    if spec["type"] == "Grade":
+        x = graded_values(spec["first"] / length, spec["growth"], n) if length > 0 else np.linspace(0, 1, n + 1)
+        if spec.get("reverse", False):
+            x = 1.0 - x[::-1]
+        return {"type": "table", "x": [float(v) for v in x]}
     r = growth_ratio(spec["first"] / length, n) if length > 0 else 1.0
     if r < 1.0 + 1e-9:
         return None
@@ -120,7 +147,7 @@ def mirror_cluster(spec):
         return spec
     if spec.get("type") == "RobertsFunction":
         return {**spec, "end0": spec.get("end1", False), "end1": spec.get("end0", False)}
-    if spec.get("type") == "Growth":
+    if spec.get("type") in ("Growth", "Grade"):
         return {**spec, "reverse": not spec.get("reverse", False)}
     return spec
 
@@ -168,7 +195,7 @@ def _ccw(doc, block):
 
 
 def _offset_curves(doc, refs, left, delta, e0, e1):
-    """Reference curves from e0 to e1, delta from the wall (refs) on its left or right side."""
+    """Split curves from e0 to e1, delta from the wall (refs) on its left or right side."""
     from .subdivide import _curve_through
     fe = _fe(doc, refs)
     walls = [doc.curves[r.id] for r in refs]
@@ -182,7 +209,7 @@ def _offset_curves(doc, refs, left, delta, e0, e1):
             a0 = math.atan2(e0[1] - c0[1], e0[0] - c0[0])
             a1 = math.atan2(e1[1] - c0[1], e1[0] - c0[0])
             sweep = wall_sweep + ((a1 - a0 - wall_sweep + math.pi) % (2.0 * math.pi) - math.pi)
-            return [ArcSeg(None, kind=REFERENCE, p0=p, p1=q, centre=c)
+            return [ArcSeg(None, kind=SPLIT, p0=p, p1=q, centre=c)
                     for p, q, c in geom.arc_pieces(c0, r0, a0, sweep, e0, e1)]
     n_pts = sum(len(c.points) for c in walls if c.type == "spline")
     n = int(np.clip(max(33, n_pts), 33, 201))
@@ -218,8 +245,8 @@ class _Split:
     far: tuple
 
 
-def _is_reference(doc, refs):
-    return all(doc.curves[r.id].kind == REFERENCE for r in refs)
+def _is_split(doc, refs):
+    return all(doc.curves[r.id].kind == SPLIT for r in refs)
 
 
 # --- walls ---------------------------------------------------------------------------------
@@ -237,8 +264,8 @@ def find_wall(doc, res, wall):
     refs = [CurveRef.from_dict(r) for r in wall["refs"]]
     if any(r.id not in doc.curves for r in refs):
         raise BlockError("a wall of the boundary layer has been deleted")
-    if _is_reference(doc, refs):
-        raise BlockError("a dashed reference line is not a wall")
+    if any(doc.curves[r.id].kind != GEOMETRY for r in refs):
+        raise BlockError("only solid curves are walls (this face is a block split line)")
     key = blocking.face_key(refs)
     cands = [(b, f) for b in res.blocks for f in FACES if blocking.face_key(b.sides[f]) == key]
     if not cands:
@@ -296,7 +323,7 @@ def apply(doc, layer):
         for c in curves:
             new_curves.append((c, b.cluster.get(f) if len(curves) == 1 else None))
 
-    # 2. carry the cuts on through neighbours joined across dashed lines
+    # 2. carry the cuts on through neighbours joined across split lines
     wall_blocks = set(parents)
     used = set()
     changed = True
@@ -306,7 +333,7 @@ def apply(doc, layer):
             if n.id in wall_blocks:
                 continue
             for f, g in (("west", "east"), ("east", "west"), ("south", "north"), ("north", "south")):
-                if not _is_reference(doc, n.sides[f]):
+                if not _is_split(doc, n.sides[f]):
                     continue                            # a solid face: nothing flows across it
                 for sp in list(splits.get(key(n.sides[f]), [])):
                     if (n.id, id(sp)) in used:
@@ -414,7 +441,15 @@ def _assign(doc, blk, concrete, parent, splits, along, layer, last):
             if {_key(a), _key(z)} == {_key(sp.point), _key(sp.far)}:
                 role[f] = "outer"
                 if layer.transition:
-                    blk.cluster[f] = {"type": "Growth", "first": last, "reverse": not _same(a, sp.point)}
+                    blk.cluster[f] = {"type": "Grade", "first": last, "growth": transition_growth(layer.growth),
+                                      "reverse": not _same(a, sp.point)}
+                else:                               # keep the spacing the parent had along this side
+                    for pf in FACES:
+                        pa, pz = _ends(doc, parent.sides[pf])
+                        if parent.cluster.get(pf) and {_key(pa), _key(pz)} == {_key(sp.anchor), _key(sp.far)}:
+                            same = _same(pa, sp.anchor) == _same(a, sp.point)
+                            spec = parent.cluster[pf]
+                            blk.cluster[f] = dict(spec if same else mirror_cluster(spec))
                 break
         else:
             pf = parent_faces.get(blocking.face_key(concrete.sides[f]))
@@ -430,20 +465,29 @@ def _assign(doc, blk, concrete, parent, splits, along, layer, last):
         if any(role.get(f) == "thin" for f in faces):
             setattr(blk, attr, layer.cells + 1)
             continue
-        n = _parent_count(doc, concrete, faces[0], parent)
-        if layer.transition:
-            for f in faces:
-                if role.get(f) == "outer":                   # enough cells to grade out gently
-                    n = max(n, outer_cells(blocking.face_length(doc, concrete.sides[f]), last, layer.growth) + 1)
+        n, pf = _parent_count(doc, concrete, faces[0], parent)
+        if layer.transition and any(role.get(f) == "outer" for f in faces):
+            # Grow from the last layer cell up to the parent's own cell size, then stay uniform.
+            target = blocking.face_length(doc, parent.sides[pf]) / max(n - 1, 1)
+            n = 1 + max(outer_cells(blocking.face_length(doc, concrete.sides[f]), last,
+                                    transition_growth(layer.growth), target)
+                        for f in faces if role.get(f) == "outer")
         setattr(blk, attr, n)
 
 
-def outer_cells(length, last, growth):
-    """Cells to grade from the last layer cell across length, growing by at most max(growth, 1.1)."""
-    g = max(growth, 1.1)
-    if length <= last:
-        return 1
-    return max(1, math.ceil(math.log1p(length * (g - 1.0) / last) / math.log(g) - 1e-9))
+def transition_growth(growth):
+    """Growth ratio for grading the outer blocks: the layer's, but at least 1.1."""
+    return max(growth, 1.1)
+
+
+def outer_cells(length, last, growth, target):
+    """Cells across length: growing from `last` by `growth` until `target` size, then uniform."""
+    k, filled, cell = 0, 0.0, last
+    while cell < target and filled + cell < length:
+        filled += cell
+        cell *= growth
+        k += 1
+    return max(1, k + math.ceil((length - filled) / target - 1e-9))
 
 
 def _key(p):
@@ -451,14 +495,14 @@ def _key(p):
 
 
 def _parent_count(doc, concrete, face, parent):
-    """Vertex count of the parent along the direction this face runs."""
+    """(Vertex count, face) of the parent along the direction this face runs."""
     def direction(refs):
         a, z = _ends(doc, refs)
         d = np.subtract(z, a)
         return d / (np.hypot(*d) or 1.0)
     d = direction(concrete.sides[face])
     best = max(FACES, key=lambda f: abs(float(direction(parent.sides[f]) @ d)))
-    return parent.niv if best in ("south", "north") else parent.njv
+    return (parent.niv if best in ("south", "north") else parent.njv), best
 
 
 def _spread_clusters(doc, made):
@@ -528,7 +572,8 @@ def unapply(doc, layer):
     dead = set(layer.curves)
     for cid in dead:
         doc.curves.pop(cid, None)
-    doc.dimensions = {k: d for k, d in doc.dimensions.items() if d.curve in doc.curves}
+    doc.dimensions = {k: d for k, d in doc.dimensions.items()
+                      if all(c in doc.curves for c in d.curve_ids())}
     gone = set(layer.blocks)
     doc.blocks = [b for b in doc.blocks if b.id not in gone and not (b.curve_ids() & dead)]
     doc.blocks.extend(Block.from_dict(d) for d in layer.base)
@@ -549,6 +594,37 @@ def redo_layers(doc, lid, settings=None, remove=False):
             setattr(doc.layers[k], name, value)
     for layer in later:
         apply(doc, layer)
+
+
+def size_jump(doc, res, layer):
+    """
+    (ratio, last layer cell, outer cell) for the worst place where a layer's cut
+    meets the block outside it: how much bigger the outer cells are than the layer's
+    last cells, measured across the cut. (1.0, None, None) if nothing to compare.
+    """
+    from ..mesh.preview import block_grid
+    blocks = {b.id: b for b in res.blocks if b.id in layer.blocks}
+    cuts = set(layer.curves)
+    md = doc.with_blocks(list(blocks.values()))
+    sizes = {}                                  # cut curve -> [cell height on each side]
+    rows = {"south": (0, 1), "north": (-1, -2), "west": (0, 1), "east": (-1, -2)}
+    for b in blocks.values():
+        refs = {f: b.sides[f] for f in FACES}
+        hits = [f for f in FACES if len(refs[f]) == 1 and refs[f][0].id in cuts]
+        if not hits:
+            continue
+        g = block_grid(md, b)[:, :, :2]
+        for f in hits:
+            a, c = rows[f]
+            edge, inner = (g[:, a], g[:, c]) if f in ("south", "north") else (g[a], g[c])
+            sizes.setdefault(refs[f][0].id, []).append(float(np.median(np.hypot(*(inner - edge).T))))
+    worst = (1.0, None, None)
+    for pair in sizes.values():
+        if len(pair) == 2 and min(pair) > 0:
+            ratio = max(pair) / min(pair)
+            if ratio > worst[0]:
+                worst = (ratio, min(pair), max(pair))
+    return worst
 
 
 def layer_of_face(doc, res, bid, face):

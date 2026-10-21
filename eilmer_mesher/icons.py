@@ -110,6 +110,26 @@ def _draw(name, p):
         for step in (1.6, 2.2, 3.0, 4.2, 5.8, 8.0):
             y -= step
             p.drawLine(QPointF(4, y), QPointF(28, y))
+    elif name == "quality":
+        p.setPen(Qt.NoPen)
+        for (x, y), c in zip(((5, 5), (16, 5), (5, 16), (16, 16)), ("#2e9d57", "#f1c40f", "#f1c40f", "#d43f3a")):
+            p.setBrush(QColor(c))
+            p.drawRect(QRectF(x, y, 11, 11))
+        p.setBrush(Qt.NoBrush)
+        p.setPen(_pen(INK, 1.2))
+        p.drawRect(QRectF(5, 5, 22, 22))
+        p.drawLine(QPointF(16, 5), QPointF(16, 27))
+        p.drawLine(QPointF(5, 16), QPointF(27, 16))
+    elif name == "refine":
+        p.setPen(_pen("#d43f3a", 1.2))
+        p.drawPolyline(QPolygonF([QPointF(5, 8), QPointF(12, 14), QPointF(16, 6), QPointF(27, 12)]))
+        p.setPen(_pen(ACCENT, 2.0))
+        path = QPainterPath(QPointF(5, 22))
+        path.cubicTo(QPointF(11, 16), QPointF(20, 28), QPointF(27, 21))
+        p.drawPath(path)
+        p.setPen(_pen(INK, 1.4))
+        p.drawLine(QPointF(16, 13), QPointF(16, 19))
+        p.drawPolyline(QPolygonF([QPointF(13, 16.5), QPointF(16, 19.5), QPointF(19, 16.5)]))
     elif name == "merge":
         p.drawLine(QPointF(4, 16), QPointF(13, 16))
         p.drawLine(QPointF(19, 16), QPointF(28, 16))
@@ -123,6 +143,13 @@ def _draw(name, p):
         p.drawPolyline(QPolygonF([QPointF(12, 8), QPointF(5, 24), QPointF(12, 24)]))
         p.setPen(_pen(ACCENT, 2.0))
         p.drawPolyline(QPolygonF([QPointF(20, 8), QPointF(27, 24), QPointF(20, 24)]))
+    elif name == "offset":
+        p.drawRect(QRectF(11, 13, 10, 8))
+        p.setPen(_pen(ACCENT, 2.0))
+        p.drawRect(QRectF(4, 6, 24, 22))
+        p.setPen(_pen(ACCENT, 1.4))
+        p.drawLine(QPointF(16, 12), QPointF(16, 7.5))
+        p.drawPolyline(QPolygonF([QPointF(13.5, 10), QPointF(16, 7.5), QPointF(18.5, 10)]))
     elif name == "regions":
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(ACCENT).lighter(150))
@@ -132,8 +159,23 @@ def _draw(name, p):
         p.setBrush(Qt.NoBrush)
         p.setPen(_pen())
         p.drawRect(QRectF(5, 7, 22, 18))
+    elif name == "grid":
+        p.setPen(_pen(INK, 1.0))
+        p.drawRect(QRectF(5, 5, 22, 22))
+        for k in (1, 2):
+            x = 5 + 22 * k / 3
+            p.drawLine(QPointF(x, 5), QPointF(x, 27))
+            p.drawLine(QPointF(5, x), QPointF(27, x))
+    elif name == "split":
+        p.setPen(_pen(INK, 1.4))
+        p.drawRect(QRectF(5, 7, 22, 18))
+        pen = _pen(REF, 2.0)
+        pen.setStyle(Qt.CustomDashLine)
+        pen.setDashPattern([3.0, 1.2, 0.6, 1.2])
+        p.setPen(pen)
+        p.drawLine(QPointF(16, 4), QPointF(16, 28))
     elif name == "reference":
-        p.setPen(_pen(REF, 2.0, dashed=True))
+        p.setPen(_pen("#8a929c", 2.0, dashed=True))
         p.drawLine(QPointF(5, 27), QPointF(27, 5))
     elif name == "import":
         p.drawPolyline(QPolygonF([QPointF(6, 18), QPointF(6, 27), QPointF(26, 27), QPointF(26, 18)]))

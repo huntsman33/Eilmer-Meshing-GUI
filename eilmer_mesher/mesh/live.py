@@ -10,11 +10,9 @@ import tempfile
 from PySide6.QtCore import QObject, QProcess, QTimer, Signal
 
 from ..lua.codegen import PREVIEW_DIR
-from ..model import blocking
 from ..model.document import BlockError
-from ..model.topology import Topology
 from . import preview
-from .runner import GEOMETRY_FILE, LmrResult, find_lmr, write_scripts
+from .runner import MESH_FILE, LmrResult, find_lmr, write_scripts
 from .vtkio import read_structured_vtk
 
 
@@ -53,8 +51,7 @@ class LiveMesher(QObject):
 
     # --- preview -------------------------------------------------------------------------
     def _resolution(self):
-        doc = self.model.doc
-        return doc, blocking.resolve(doc, Topology(doc))
+        return self.model.doc, self.model.resolution()          # cached per revision
 
     def _preview(self):
         if not self.enabled:
@@ -117,7 +114,7 @@ class LiveMesher(QObject):
         self.proc.setProcessChannelMode(QProcess.MergedChannels)
         self.proc.finished.connect(self._finished)
         self.status.emit("Mesh: running Eilmer...")
-        self.proc.start(lmr, ["custom-script", "-j", GEOMETRY_FILE])
+        self.proc.start(lmr, ["custom-script", "-j", MESH_FILE])
 
     def _finished(self, code, _status):
         proc, self.proc = self.proc, None

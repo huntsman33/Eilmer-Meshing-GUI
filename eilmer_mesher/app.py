@@ -8,7 +8,9 @@ from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMai
 
 from . import settings
 from .icons import icon
+from .mesh import quality as mesh_quality
 from .mesh.live import LiveMesher
+from .quality_banner import QualityBanner, ThresholdsDialog
 from .model.document import BlockError
 from .sketch.bc_dialogs import BCDialog, BCManagerDialog
 from .sketch.block_dialogs import EdgeCellsDialog, SplitDialog
@@ -88,7 +90,7 @@ class InputBar(QWidget):
     def refresh(self):
         tool = self.canvas.tool
         self.prompt.setText(f"<b>{tool.label}</b>  {tool.prompt()}" if tool else "")
-        self.edit.setEnabled(bool(tool and tool.name not in ("select", "trim", "merge", "mirror", "block", "layer")))
+        self.edit.setEnabled(bool(tool and tool.name not in ("select", "trim", "merge", "mirror", "offset", "block", "layer")))
         if tool is not None and tool.name == "move":
             self.edit.setPlaceholderText(f"type a move in {self.canvas.units.name}:  dx, dy    or  L<deg")
             return
@@ -131,12 +133,19 @@ class MainWindow(QMainWindow):
         self._make_menus_and_toolbars()
         self.apply_shortcuts()
 
+        self.mesh_quality = None
+        self._refine_targets, self._ao_targets = [], []
+        self.banner = QualityBanner(self.act_refine, self.act_quality)
+        self.banner.aoRequested.connect(self.try_aopatch)
+        central.layout().insertWidget(0, self.banner)
+        self.mesher.meshChanged.connect(self.update_quality)
+
         self.canvas.cursorMoved.connect(self._show_cursor)
         self.canvas.typedText.connect(self.input_bar.start_typing)
         self.canvas.escapeIdle.connect(lambda: self.set_tool("select"))
         self.canvas.toolStateChanged.connect(self._refresh_tool_text)
         self.canvas.editRequested.connect(self.edit_entity)
-        self.canvas.message.connect(lambda text: self.statusBar().showMessage(text, 6000))
+        self.canvas.message.connect(lambda text: self.statusBar().showMessage(text, 6000 if len(text) < 90 else 15000))
         self.canvas.edgeRequested.connect(self.edit_edge)
         self.canvas.splitRequested.connect(self.split_region)
         self.canvas.bcRequested.connect(self.new_bc_for)
@@ -186,15 +195,36 @@ class MainWindow(QMainWindow):
                                 lambda: self.model.toggle_reference())
         self.act_ref_mode = A("sketch.reference_mode", "Draw reference (dashed) lines", self._set_reference_mode,
                               "reference", checkable=True)
+        self.act_toggle_split = A("edit.toggle_split", "Convert to/from block &split line",
+                                  lambda: self.model.toggle_split())
+        self.act_split_mode = A("sketch.split_mode", "Draw block split (dash-dot) lines", self._set_split_mode,
+                                "split", checkable=True)
         self.act_fit = A("view.fit", "Zoom to &fit", self.canvas.zoom_to_fit, "fit")
         self.act_regions = A("view.regions", "Show &regions", self._set_show_regions, "regions", checkable=True)
+        self.act_grid = A("view.grid", "Show &grid", self._set_show_grid, "grid", checkable=True)
+        self.act_grid.setChecked(settings.show_grid())
+        self.canvas.show_grid = self.act_grid.isChecked()
         self.act_shortcuts = A(None, "&Keyboard shortcuts...", self.edit_shortcuts)
         self.act_block_all = A("block.all", "Block &all regions", self.block_all)
         self.act_run_mesh = A("mesh.run", "&Run Eilmer now", lambda: self.mesher.run_now())
         self.act_show_blocks = A("view.blocks", "Show &blocks", self._set_show_blocks, checkable=True)
         self.act_show_blocks.setChecked(True)
+        self.act_show_all_blocks = A(None, "Show all &blocks", lambda: self.canvas.set_blocks_hidden(set(self.canvas.hidden_blocks), False))
         self.act_show_mesh = A("view.mesh", "Show &mesh", self._set_show_mesh, checkable=True)
         self.act_show_mesh.setChecked(True)
+        self.act_quality = A("view.quality", "Show cell &quality", self._set_show_quality, "quality", checkable=True)
+        self.act_refine = A("block.refine", "&Refine flagged blocks", self.refine_mesh, "refine")
+        self.act_refine.setToolTip("Laplace-smooth the blocks with poor cells")
+        self.act_refine.setEnabled(False)
+        self.act_thresholds = A(None, "Quality &thresholds...", self.edit_thresholds)
+        self.metric_group = QActionGroup(self)
+        self.metric_actions = {}
+        for metric, text in (("skew", "Skewness"), ("ar", "Aspect ratio")):
+            act = QAction(text, self, checkable=True)
+            act.setChecked(metric == "skew")
+            act.triggered.connect(lambda checked=False, m=metric: self._set_quality_metric(m))
+            self.metric_group.addAction(act)
+            self.metric_actions[metric] = act
 
         self.tool_group = QActionGroup(self)
         self.tool_actions = {}
@@ -236,7 +266,7 @@ class MainWindow(QMainWindow):
         for a in (self.act_undo, self.act_redo):
             m.addAction(a)
         m.addSeparator()
-        for a in (self.act_delete, self.act_select_all, self.act_toggle_ref):
+        for a in (self.act_delete, self.act_select_all, self.act_toggle_ref, self.act_toggle_split):
             m.addAction(a)
         m.addSeparator()
         m.addAction(self.act_shortcuts)
@@ -246,6 +276,7 @@ class MainWindow(QMainWindow):
             m.addAction(act)
         m.addSeparator()
         m.addAction(self.act_ref_mode)
+        m.addAction(self.act_split_mode)
         snap_menu = m.addMenu("Snap to")
         for act in self.snap_actions.values():
             snap_menu.addAction(act)
@@ -256,12 +287,21 @@ class MainWindow(QMainWindow):
         m.addAction(self.act_block_all)
         m.addAction(self.act_bcs)
         m.addAction(self.act_run_mesh)
+        m.addSeparator()
+        m.addAction(self.act_refine)
 
         m = mb.addMenu("&View")
         m.addAction(self.act_fit)
         m.addAction(self.act_regions)
+        m.addAction(self.act_grid)
         m.addAction(self.act_show_blocks)
+        m.addAction(self.act_show_all_blocks)
         m.addAction(self.act_show_mesh)
+        m.addAction(self.act_quality)
+        metric_menu = m.addMenu("Quality &metric")
+        for act in self.metric_actions.values():
+            metric_menu.addAction(act)
+        m.addAction(self.act_thresholds)
         units_menu = m.addMenu("&Units")
         for act in self.unit_actions.values():
             units_menu.addAction(act)
@@ -275,6 +315,7 @@ class MainWindow(QMainWindow):
             tb.addAction(act)
         tb.addSeparator()
         tb.addAction(self.act_ref_mode)
+        tb.addAction(self.act_split_mode)
         snap_button = QToolButton()
         snap_button.setIcon(icon("snap"))
         snap_button.setToolTip("Snap options")
@@ -282,6 +323,8 @@ class MainWindow(QMainWindow):
         snap_button.setMenu(snap_menu)
         tb.addWidget(snap_button)
         tb.addAction(self.act_regions)
+        tb.addAction(self.act_grid)
+        tb.addAction(self.act_quality)
         tb.addSeparator()
         tb.addAction(self.act_import)
         tb.addAction(self.act_export)
@@ -330,6 +373,16 @@ class MainWindow(QMainWindow):
 
     def _set_reference_mode(self, on):
         self.model.reference_mode = on
+        if on and self.act_split_mode.isChecked():          # one drawing mode at a time
+            self.act_split_mode.setChecked(False)
+            self.model.split_mode = False
+        self.canvas.update()
+
+    def _set_split_mode(self, on):
+        self.model.split_mode = on
+        if on and self.act_ref_mode.isChecked():
+            self.act_ref_mode.setChecked(False)
+            self.model.reference_mode = False
         self.canvas.update()
 
     def _set_show_blocks(self, on):
@@ -382,7 +435,9 @@ class MainWindow(QMainWindow):
                     self.statusBar().showMessage("Boundary layer removed.", 6000)
                 elif lid is not None:
                     self.model.edit_boundary_layer(lid, **dlg.values())
-                    self.statusBar().showMessage("Boundary layer cut again with the new settings.", 6000)
+                    note = self.model.layer_note(lid)
+                    self.statusBar().showMessage("Boundary layer cut again with the new settings. " + note,
+                                                 15000 if note else 6000)
                 else:
                     settings.set_layer_defaults(dlg.values())
                     self.statusBar().showMessage("Settings saved for the next boundary layer.", 6000)
@@ -471,6 +526,89 @@ class MainWindow(QMainWindow):
         self.canvas.show_regions = on
         self.canvas.update()
 
+    # --- mesh quality and refinement ------------------------------------------------------
+    def update_quality(self, mesh):
+        """Check the cells of a new mesh; update the heat-map, the banner and Refine."""
+        if mesh is None:
+            self.mesh_quality = None
+            self.canvas.set_quality(None)
+            self.banner.show_quality(None, False, [])
+            self.act_refine.setEnabled(False)
+            return
+        res = self.model.resolution()
+        q = mesh_quality.assess(mesh, settings.quality_thresholds(), mesh_quality.intentional_aspect(res.blocks))
+        self.mesh_quality = q
+        self.canvas.set_quality(q)
+        self._refine_targets, self._ao_targets, hint = self._refine_plan(q, res)
+        self.act_refine.setEnabled(bool(self._refine_targets))
+        self.banner.show_quality(q, bool(self._refine_targets), self._ao_targets, hint)
+
+    def _refine_plan(self, q, res):
+        """(blocks Refine would smooth, blocks to offer AOPatch, a hint for the banner)."""
+        layered = mesh_quality.intentional_aspect(res.blocks)
+        stored = {b.id: b for b in self.model.doc.blocks}
+        bad = [bid for bid in q.flagged("bad", "error") if bid in stored]
+        targets = bad or [bid for bid, b in q.blocks.items() if b.skew_warn and bid in stored]
+        refine = [bid for bid in targets
+                  if not stored[bid].smoothing and stored[bid].patch == "CoonsPatch" and bid not in layered]
+        ao = [bid for bid in bad if stored[bid].smoothing and stored[bid].patch == "CoonsPatch"
+              and bid not in layered]
+        hints = []
+        if ao:
+            hints.append(f"Smoothing has not fixed {', '.join(ao)}: try AOPatch, or sub-divide.")
+        stuck = [bid for bid in bad if stored[bid].patch == "AOPatch"]
+        if stuck:
+            hints.append(f"Sub-divide {', '.join(stuck)} or move its corners.")
+        if any(bid in layered for bid in targets):
+            hints.append("Boundary-layer blocks are not smoothed (it would undo the wall spacing).")
+        if q.level() == "warn" and not targets:
+            hints.append("Change the cell counts along the long edges to bring the aspect ratio down.")
+        return refine, ao, " ".join(hints)
+
+    def refine_mesh(self):
+        """Laplace-smooth the blocks the quality check flagged."""
+        if not self._refine_targets:
+            self.statusBar().showMessage("No blocks need refining.", 5000)
+            return
+        smoothed, ao, skipped = self.model.refine_blocks(self._refine_targets)
+        parts = []
+        if smoothed:
+            parts.append(f"Laplace smoothing on {', '.join(smoothed)}")
+        if ao:
+            parts.append(f"AOPatch on {', '.join(ao)} (smoothing would fold cells there)")
+        msg = "Refine: " + "; ".join(parts) + "; the mesh is being rebuilt." if parts else ""
+        if skipped:
+            msg += f" Skipped boundary-layer block(s) {', '.join(skipped)}."
+        self.statusBar().showMessage(msg.strip(), 8000)
+
+    def try_aopatch(self):
+        if self._ao_targets:
+            self.model.set_block_patch(self._ao_targets, "AOPatch", {"nx": 10, "ny": 10}, smoothing=None)
+            self.statusBar().showMessage(f"{', '.join(self._ao_targets)} now use AOPatch.", 6000)
+
+    def _set_show_quality(self, on):
+        self.canvas.show_quality = on
+        self.canvas.update()
+
+    def _set_quality_metric(self, metric):
+        self.canvas.quality_metric = metric
+        if not self.act_quality.isChecked():
+            self.act_quality.setChecked(True)
+            self._set_show_quality(True)
+        self.canvas.update()
+
+    def edit_thresholds(self):
+        dlg = ThresholdsDialog(settings.quality_thresholds(), self)
+        if dlg.exec():
+            settings.set_quality_thresholds(dlg.values())
+            self.update_quality(self.mesher.mesh)
+        self.canvas.setFocus()
+
+    def _set_show_grid(self, on):
+        self.canvas.show_grid = on
+        settings.set_show_grid(on)
+        self.canvas.update()
+
     def _refresh_tool_text(self):
         self.input_bar.refresh()
         tool = self.canvas.tool
@@ -515,6 +653,7 @@ class MainWindow(QMainWindow):
     def new_document(self):
         if self._confirm_discard():
             self._set_path(None)
+            self.canvas.hidden_blocks.clear()
             self.model.reset(Document())
             self.canvas.zoom_to_fit()
             self._update_title()
@@ -534,6 +673,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Open failed", f"Could not open {path}:\n{e}")
             return
         self._set_path(path)
+        self.canvas.hidden_blocks.clear()
         self.model.reset(doc)
         self.model.undo_stack.setClean()
         self.canvas.zoom_to_fit()

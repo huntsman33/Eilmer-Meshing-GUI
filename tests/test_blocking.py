@@ -13,6 +13,7 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
+from PySide6.QtCore import QEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -22,7 +23,7 @@ from eilmer_mesher.mesh.live import LiveMesher
 from eilmer_mesher.mesh.runner import export_grids, find_lmr, preview_mesh
 from eilmer_mesher.model import blocking, geom
 from eilmer_mesher.model.document import Document
-from eilmer_mesher.model.entities import REFERENCE, ArcSeg, LineSeg
+from eilmer_mesher.model.entities import SPLIT, ArcSeg, LineSeg
 from eilmer_mesher.sketch.model import SketchModel, _mirror_cluster
 
 app = QApplication.instance() or QApplication([])
@@ -52,6 +53,9 @@ class ModelTest(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
+        # Delete the Qt object now, not in garbage collection at exit (which can crash).
+        self.model.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
     def add(self, curves):
         return self.model.add_curves(curves, "add")
@@ -79,7 +83,7 @@ class TestRegionBlocks(ModelTest):
     def setUp(self):
         super().setUp()
         self.add(box(0, 0, 3, 2))
-        self.ref = self.add([LineSeg(None, kind=REFERENCE, p0=(1, 0), p1=(1, 2))])[0]
+        self.ref = self.add([LineSeg(None, kind=SPLIT, p0=(1, 0), p1=(1, 2))])[0]
         self.left = self.model.make_block((0.5, 1))
         self.right = self.model.make_block((2, 1))
 
@@ -92,7 +96,7 @@ class TestRegionBlocks(ModelTest):
         self.assertEqual((b[self.left].njv, b[self.right].njv), (31, 31))
 
     def test_count_propagates_through_a_chain(self):
-        self.add([LineSeg(None, kind=REFERENCE, p0=(2, 0), p1=(2, 2))])
+        self.add([LineSeg(None, kind=SPLIT, p0=(2, 0), p1=(2, 2))])
         self.model.make_all_blocks()
         self.assertEqual(len(self.res().blocks), 3)
         self.model.set_edge_cells(self.res().blocks[0].id, "west", 7)
@@ -113,7 +117,7 @@ class TestRegionBlocks(ModelTest):
         np.testing.assert_allclose(doc.ref_endpoints(left.sides["east"][0]), [(1.5, 0), (1.5, 2)])
 
     def test_split_region_breaks_block_and_block_all_fixes_it(self):
-        self.add([LineSeg(None, kind=REFERENCE, p0=(0, 1), p1=(1, 1))])
+        self.add([LineSeg(None, kind=SPLIT, p0=(0, 1), p1=(1, 1))])
         self.assertIn(self.left, self.res().errors)
         made, skipped = self.model.make_all_blocks()
         self.assertEqual((len(made), skipped), (2, []))
@@ -143,7 +147,7 @@ class TestRegionBlocks(ModelTest):
 
     def test_warnings(self):
         # Right half split horizontally: the left block's east face only partly matches each.
-        self.add([LineSeg(None, kind=REFERENCE, p0=(1, 1), p1=(3, 1))])
+        self.add([LineSeg(None, kind=SPLIT, p0=(1, 1), p1=(3, 1))])
         self.model.make_all_blocks()
         self.assertTrue(any("partly matches" in w for w in self.res().warnings.get(self.left, [])))
 

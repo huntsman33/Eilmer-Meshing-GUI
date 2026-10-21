@@ -81,6 +81,9 @@ def distribute(spec, n):
     if spec and spec.get("type") == "growth":
         from ..model.layers import growth_values
         return growth_values(spec["r"], spec["n"], t, spec["reverse"])
+    if spec and spec.get("type") == "table":
+        x = np.asarray(spec["x"], float)
+        return x if len(x) == n else np.interp(t, np.linspace(0.0, 1.0, len(x)), x)
     return t
 
 

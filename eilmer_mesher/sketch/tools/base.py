@@ -71,6 +71,10 @@ class Tool:
     def claims_key(self, key):
         return False
 
+    def claims_hold(self, key):
+        """True if this tool uses a canvas hold key (H, V) as its own shortcut."""
+        return False
+
     def key(self, key):
         return False
 

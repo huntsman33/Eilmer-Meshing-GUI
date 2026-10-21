@@ -1,5 +1,5 @@
 """
-The project document: the single source of truth that geometry.lua is generated from.
+The project document: the single source of truth that mesh.lua is generated from.
 
 A Block is a four-sided CoonsPatch region. Each face is an ordered list of
 CurveRefs; a face with several curves becomes an Eilmer Polyline, and a curve
@@ -11,7 +11,7 @@ import json
 import math
 from dataclasses import dataclass, field
 
-from .entities import REFERENCE, curve_from_dict
+from .entities import GEOMETRY, REFERENCE, SPLIT, curve_from_dict
 
 FACES = ("north", "east", "south", "west")
 CORNER_TOL = 1.0e-9
@@ -95,18 +95,34 @@ class Dimension:
     always read from the curve; editing the value drives the curve.
     offset places the annotation: distance from the line (left of p0 -> p1), or
     from the arc (outwards).
+    With a second line curve2 it is a two-line dimension (see model/dimensions.py):
+    "distance" between parallel lines or "angle" between the lines; editing the value
+    moves curve2. offset is then the position along the first line, or the arc
+    radius, and sector ([+-1, +-1]) picks which of the four angles is shown.
     """
     id: str
     kind: str
     curve: str
     offset: float = 0.0
+    curve2: str = None
+    sector: list = None
+
+    def curve_ids(self):
+        return [self.curve] if self.curve2 is None else [self.curve, self.curve2]
 
     def to_dict(self):
-        return {"id": self.id, "kind": self.kind, "curve": self.curve, "offset": self.offset}
+        d = {"id": self.id, "kind": self.kind, "curve": self.curve, "offset": self.offset}
+        if self.curve2 is not None:
+            d["curve2"] = self.curve2
+        if self.sector is not None:
+            d["sector"] = list(self.sector)
+        return d
 
     @classmethod
     def from_dict(cls, d):
-        return cls(d["id"], d["kind"], d["curve"], float(d.get("offset", 0.0)))
+        sector = d.get("sector")
+        return cls(d["id"], d["kind"], d["curve"], float(d.get("offset", 0.0)), d.get("curve2"),
+                   [int(s) for s in sector] if sector is not None else None)
 
 
 @dataclass
@@ -124,7 +140,7 @@ class BoundaryLayer:
     first: float = 1.0e-5
     growth: float = 1.2
     cells: int = 10
-    transition: bool = True
+    transition: bool = False
     curves: list = field(default_factory=list)
     blocks: list = field(default_factory=list)
     base: list = field(default_factory=list)
@@ -144,7 +160,8 @@ def _close(a, b, tol=CORNER_TOL):
 
 
 class Document:
-    VERSION = 1
+    # 2: dashed 'reference' curves became drawing aids; block interfaces are 'split' curves
+    VERSION = 2
 
     def __init__(self):
         self.curves = {}      # id -> Curve, insertion ordered
@@ -206,8 +223,9 @@ class Document:
             self.curves.pop(cid, None)
             self.points.pop(cid, None)
             self.dimensions.pop(cid, None)
-        for did in [d.id for d in self.dimensions.values() if d.curve not in self.curves]:
-            del self.dimensions[did]                # dimensions go with their curve
+        for did in [d.id for d in self.dimensions.values()
+                    if any(c not in self.curves for c in d.curve_ids())]:
+            del self.dimensions[did]                # dimensions go with their curve(s)
         return self.remove_blocks_using(ids)
 
     def add_dimension(self, dim):
@@ -253,9 +271,9 @@ class Document:
             self.face_bc_tag(block, face)
 
     def face_bc_tag(self, block, face):
-        """BC tag for a block face; reference curves are internal and never tagged."""
+        """BC tag for a block face; only solid curves carry tags (split lines are internal)."""
         tags = {self.curves[r.id].bc_tag for r in block.sides[face]
-                if self.curves[r.id].kind != REFERENCE}
+                if self.curves[r.id].kind == GEOMETRY}
         tags.discard("")
         if len(tags) > 1:
             raise BlockError(f"block {block.id}: {face} face mixes BC tags {sorted(tags)}")
@@ -276,7 +294,10 @@ class Document:
     @classmethod
     def from_dict(cls, d):
         doc = cls()
+        old = d.get("version", 1) < 2
         for cd in d.get("curves", []):
+            if old and cd.get("kind") == REFERENCE:
+                cd = {**cd, "kind": SPLIT}             # version 1 dashed lines split blocks
             doc.add_curve(curve_from_dict(cd))
         for pd in d.get("points", []):
             doc.add_point(pd["id"], (pd["x"], pd["y"]))

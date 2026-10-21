@@ -18,11 +18,50 @@ from eilmer_mesher.app import MainWindow
 from eilmer_mesher.lua.codegen import generate_bcs_lua, generate_geometry_lua
 from eilmer_mesher.model.bcs import BC_CLASSES, check_tag, flow_state_names, sim_template
 from eilmer_mesher.model.document import BlockError
-from eilmer_mesher.model.entities import REFERENCE, LineSeg
+from eilmer_mesher.model.entities import REFERENCE, SPLIT, LineSeg
 from eilmer_mesher.sketch.bc_dialogs import BCDialog, add_bc_menu
 from eilmer_mesher.sketch.canvas import SketchCanvas
 
 app = QApplication.instance() or QApplication([])
+
+
+EXPECTED_SIM_LUA = r"""-- sim.lua: a starting point for simulating the grids exported by eilmer-mesher.
+-- Edit the gas model, flow states and run settings, then:
+--   lmr prep-gas -i ideal-air.lua -o ideal-air.gas   (or use your own gas file)
+--   lmr prep-grids -j mesh.lua
+--   lmr prep-sim -j sim.lua
+--   lmr run
+--   lmr snapshot2vtk -a
+--   cd lmrsim/vtk && paraview fluid.pvd
+setGasModel("ideal-air.gas")
+config.solver_mode = "transient"
+config.gasdynamic_update_scheme  = "predictor-corrector"
+config.flux_calculator = "adaptive_hanel_ausmdv"
+config.dimensions = 2
+config.axisymmetric = false
+
+-- Flow states. 'initial' fills the domain (every block has fsTag "initial");
+-- the others are referred to by the boundary conditions in bcs.lua.
+p_inf = 1.5e3 -- Pa
+T_inf = 227.0 -- K
+M_inf = 6.0
+tmp = FlowState:new{p=p_inf, T=T_inf}
+u_inf = M_inf * tmp.a -- m/s
+
+initial = FlowState:new{p=p_inf/5.0, T=T_inf}          -- used by all blocks (fsTag="initial")
+inflow = FlowState:new{p=p_inf, T=T_inf, velx=u_inf}   -- used by InFlowBC_Supersonic (inflow)
+
+flowDict = {initial=initial, inflow=inflow}
+
+dofile("bcs.lua")               -- bcDict: the boundary-condition tags set in the GUI
+makeFluidBlocks(bcDict, flowDict)
+
+config.max_time = 1e-3          -- seconds
+config.max_step = 100000
+config.dt_init = 1.0e-9
+config.cfl_value = 0.5
+config.dt_plot = config.max_time / 100
+"""
 
 
 class TestCatalogue(unittest.TestCase):
@@ -69,6 +108,25 @@ class TestTagging(ModelTest):
         ref = self.add([LineSeg(None, kind=REFERENCE, p0=(1, 0), p1=(1, 1))])[0]
         self.assertEqual(self.model.set_bc([ref], "inflow"), 0)
 
+    def test_sim_template_matches_users_sim_lua(self):
+        self.model.set_bc([self.west], "inflow")
+        self.model.set_bc([self.east], "outflow")
+        self.model.make_block((1, 0.5))
+        md = self.model.doc.with_blocks(self.res().blocks)
+        self.assertEqual(sim_template(md, ["inflow", "outflow"]), EXPECTED_SIM_LUA)
+
+    def test_sim_template_states(self):
+        md = self.model.doc
+        md.bcs["amb"] = {"class": "InFlowBC_Supersonic", "args": "flowState=ambient"}
+        txt = sim_template(md, ["amb"])
+        self.assertIn("ambient = FlowState:new{p=p_inf, T=T_inf}   ", txt)
+        self.assertIn("-- used by InFlowBC_Supersonic (amb)", txt)
+        self.assertIn("flowDict = {initial=initial, inflow=inflow, ambient=ambient}", txt)
+        # With no BC naming it, the free-stream inflow state is still there, ready to use.
+        txt = sim_template(md, [])
+        self.assertIn("inflow = FlowState:new{p=p_inf, T=T_inf, velx=u_inf}", txt)
+        self.assertIn("flowDict = {initial=initial, inflow=inflow}", txt)
+
     def test_tags_reach_lua(self):
         self.model.set_bc([self.west], "inflow")
         self.model.set_bc([self.east], "outflow")
@@ -78,7 +136,7 @@ class TestTagging(ModelTest):
         bcs = generate_bcs_lua(md)
         self.assertIn("inflow = InFlowBC_Supersonic:new{flowState=inflow},", bcs)
         self.assertIn("outflow = OutFlowBC_Simple:new{},", bcs)
-        self.assertIn("inflow = FlowState:new{p=100.0e3, T=300.0, velx=0.0}", sim_template(md, ["inflow"]))
+        self.assertIn("inflow = FlowState:new{p=p_inf, T=T_inf, velx=u_inf}", sim_template(md, ["inflow"]))
 
     def test_mixed_tags_on_a_face_explained(self):
         # The south side made of two collinear curves with different tags, inside one block face.
@@ -106,7 +164,7 @@ class TestConnections(ModelTest):
 
     @unittest.skipUnless(have_lmr(), "lmr not installed")
     def test_dashed_line_connects(self):
-        self.add(box(0, 0, 2, 1) + [LineSeg(None, kind=REFERENCE, p0=(1, 0), p1=(1, 1))])
+        self.add(box(0, 0, 2, 1) + [LineSeg(None, kind=SPLIT, p0=(1, 0), p1=(1, 1))])
         self.model.make_all_blocks()
         _, connections = self.eilmer()
         self.assertEqual(connections, 1)
@@ -155,7 +213,7 @@ class TestBCGui(unittest.TestCase):
         self.assertEqual(self.m.doc.curves[self.ids[1]].bc_tag, "outflow")
 
     def test_export_refuses_broken_blocks(self):
-        self.m.add_curves([LineSeg(None, kind=REFERENCE, p0=(0.1, 0), p1=(0.1, 0.05))], "split")
+        self.m.add_curves([LineSeg(None, kind=SPLIT, p0=(0.1, 0), p1=(0.1, 0.05))], "split")
         with mock.patch.object(QMessageBox, "warning") as warn, \
                 mock.patch("eilmer_mesher.app.QFileDialog.getExistingDirectory") as pick:
             self.win.export_to_eilmer()

@@ -19,7 +19,7 @@ from ...model import geom
 from ..canvas import make_pen
 from ..bc_dialogs import add_bc_menu
 from .base import Tool
-from .dimension import offset_at
+from .dimension import place_at
 
 DRAG_START_PX = 3
 CONNECT_TOL_PX = 0.5
@@ -134,7 +134,7 @@ class SelectTool(Tool):
         doc = self.model.doc
         if d["kind"] == "dim":
             dim = doc.dimensions[d["did"]]
-            dim.offset = offset_at(dim.kind, doc.curves[dim.curve], ev.world)
+            place_at(doc, dim, ev.world)
             self.model.notify()
             return
         if d["kind"] == "handle":
@@ -195,7 +195,12 @@ class SelectTool(Tool):
         eid = self.canvas.pick_entity(ev.screen, ev.world)
         if eid is not None and eid not in self.model.selection:
             self.model.set_selection({eid})
+        bid = self.model.block_at(tuple(ev.world), res=self.canvas.resolution())
         if not self.model.selection:
+            if bid is not None or self.canvas.hidden_ids():
+                menu = QMenu(self.canvas)
+                self.canvas.block_visibility_menu(menu, bid)
+                menu.popup(self.canvas.mapToGlobal(ev.screen.toPoint()))
             return
         menu = QMenu(self.canvas)
         sel = self.model.selection
@@ -208,8 +213,12 @@ class SelectTool(Tool):
             menu.addAction("Merge", lambda: self._merge(curves))
         if curves:
             add_bc_menu(menu, self.canvas, sorted(curves))
-            menu.addAction("Toggle reference (dashed)", self.model.toggle_reference)
+            menu.addAction("Toggle reference line (dashed, ignored by the mesher)", self.model.toggle_reference)
+            menu.addAction("Toggle block split line (dash-dot)", self.model.toggle_split)
         menu.addAction("Delete", self.model.delete_selection)
+        if bid is not None or self.canvas.hidden_ids():
+            menu.addSeparator()
+            self.canvas.block_visibility_menu(menu, bid)
         menu.popup(self.canvas.mapToGlobal(ev.screen.toPoint()))
 
     def _merge(self, ids):

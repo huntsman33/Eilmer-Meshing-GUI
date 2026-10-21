@@ -11,7 +11,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QUndoCommand, QUndoStack
 
 from ..model.document import Dimension, Document
-from ..model.entities import GEOMETRY, REFERENCE
+from ..model.entities import GEOMETRY, REFERENCE, SPLIT
 
 
 class SnapshotCommand(QUndoCommand):
@@ -42,12 +42,15 @@ class SketchModel(QObject):
         self.doc = doc or Document()
         self.undo_stack = QUndoStack(self)
         self.selection = set()
-        self.reference_mode = False
+        self.reference_mode = False    # new curves are dashed drawing aids
+        self.split_mode = False        # new curves are block split lines
         self.revision = 0
         self._before = None
 
     # --- editing -----------------------------------------------------------
     def new_kind(self):
+        if self.split_mode:
+            return SPLIT
         return REFERENCE if self.reference_mode else GEOMETRY
 
     def begin_edit(self):
@@ -192,25 +195,49 @@ class SketchModel(QObject):
     def dimension_kind(curve):
         return {"line": "length", "arc": "angle"}.get(curve.type)
 
-    def add_dimension(self, cid, offset):
-        """Dimension a line (length) or arc (angle); re-placing an existing one moves it."""
-        kind = self.dimension_kind(self.doc.curves[cid])
-        if kind is None:
-            raise ValueError("only lines and arcs can be dimensioned")
+    def two_line_kind(self, cid, cid2):
+        """"distance" (parallel) or "angle" for two lines, or None if they aren't two lines."""
+        from ..model import dimensions
+        a, b = self.doc.curves.get(cid), self.doc.curves.get(cid2)
+        if cid == cid2 or a is None or b is None or a.type != "line" or b.type != "line":
+            return None
+        return dimensions.two_line_kind(a, b)
+
+    def add_dimension(self, cid, offset, cid2=None, sector=None):
+        """
+        Dimension a line (length) or arc (angle), or with cid2 the distance or angle
+        between two lines (sector picks the angle; see model/dimensions.py).
+        Re-placing an existing one moves it.
+        """
+        if cid2 is not None:
+            kind = self.two_line_kind(cid, cid2)
+            if kind is None:
+                raise ValueError("a two-line dimension needs two different lines")
+            if kind == "angle" and sector is None:
+                from ..model import dimensions
+                sector = dimensions.default_sector(self.doc.curves[cid], self.doc.curves[cid2])
+            sector = [int(s) for s in sector] if kind == "angle" else None
+        else:
+            kind = self.dimension_kind(self.doc.curves[cid])
+            if kind is None:
+                raise ValueError("only lines and arcs can be dimensioned")
         existing = next((d for d in self.doc.dimensions.values()
-                         if d.curve == cid and d.kind == kind), None)
+                         if d.curve == cid and d.curve2 == cid2 and d.kind == kind), None)
         with self.edit("Dimension") as doc:
             if existing is not None:
                 existing.offset = float(offset)
+                existing.sector = sector
                 return existing.id
             did = doc.new_id("dim")
-            doc.add_dimension(Dimension(did, kind, cid, float(offset)))
+            doc.add_dimension(Dimension(did, kind, cid, float(offset), cid2, sector))
         return did
 
     def dimension_value(self, did):
-        """Length (metres) or sweep angle (degrees) the dimension currently shows."""
-        from ..model import geom
+        """Length or distance (metres), or sweep or two-line angle (degrees) the dimension shows."""
+        from ..model import dimensions, geom
         d = self.doc.dimensions[did]
+        if d.curve2 is not None:
+            return dimensions.value(self.doc, d)
         c = self.doc.curves[d.curve]
         if d.kind == "length":
             return math.dist(c.p0, c.p1)
@@ -218,9 +245,13 @@ class SketchModel(QObject):
         return math.degrees(abs(sweep))
 
     def set_dimension_value(self, did, value):
-        """Drive the curve to a new length (metres) or sweep angle (degrees)."""
+        """Drive the curve to a new length (metres) or sweep angle (degrees). A two-line
+        dimension moves its second line (distance in metres, angle in degrees)."""
         from ..model import geom
         d = self.doc.dimensions[did]
+        if d.curve2 is not None:
+            self.set_two_line_value(did, value)
+            return
         c = self.doc.curves[d.curve]
         if d.kind == "length":
             angle = math.degrees(math.atan2(c.p1[1] - c.p0[1], c.p1[0] - c.p0[0]))
@@ -228,6 +259,20 @@ class SketchModel(QObject):
         else:
             _, r, _, _ = geom.arc_geometry(c.p0, c.p1, c.centre)
             self.set_arc(d.curve, r, value)
+
+    def set_two_line_value(self, did, value):
+        """Move a two-line dimension's second line: parallel to itself to a new distance
+        (same side), or turned about the vertex to a new angle. Connected ends follow."""
+        from ..model import dimensions
+        d = self.doc.dimensions[did]
+        old = self.doc.curves[d.curve2]
+        new = dimensions.driven_line(self.doc, d, value)
+        moves = [(self.connected_ends(p, exclude={d.curve2}), q)
+                 for p, q in ((old.p0, new.p0), (old.p1, new.p1)) if p != q]
+        with self.edit("Edit dimension") as doc:
+            doc.curves[d.curve2] = new
+            for partners, q in moves:
+                self._move_ends(doc, partners, q)
 
     # --- boundary conditions -------------------------------------------------------------
     def define_bc(self, tag, cls, args="", old_tag=None):
@@ -248,7 +293,7 @@ class SketchModel(QObject):
         """Tag solid curves ('' = untagged, Eilmer's slip wall). Returns how many were tagged."""
         if tag and tag not in self.doc.bcs:
             raise ValueError(f"no boundary condition called '{tag}'")
-        ids = [i for i in curve_ids if i in self.doc.curves and self.doc.curves[i].kind != REFERENCE]
+        ids = [i for i in curve_ids if i in self.doc.curves and self.doc.curves[i].kind == GEOMETRY]
         if ids:
             with self.edit("Set boundary condition") as doc:
                 for i in ids:
@@ -273,12 +318,24 @@ class SketchModel(QObject):
 
     # --- blocks ---------------------------------------------------------------------------
     def topology(self):
+        """The sketch's regions, cached until the next change (it takes a while on big sketches)."""
         from ..model.topology import Topology
-        return Topology(self.doc)
+        cached = getattr(self, "_topology", None)
+        if cached is None or cached[0] != self.revision or cached[1] is not self.doc:
+            cached = (self.revision, self.doc, Topology(self.doc))
+            self._topology = cached
+        return cached[2]
 
     def resolution(self, topo=None):
+        """Every block resolved against the topology, cached like topology()."""
         from ..model import blocking
-        return blocking.resolve(self.doc, topo or self.topology())
+        if topo is not None and topo is not self.topology():
+            return blocking.resolve(self.doc, topo)
+        cached = getattr(self, "_resolution", None)
+        if cached is None or cached[0] != self.revision or cached[1] is not self.doc:
+            cached = (self.revision, self.doc, blocking.resolve(self.doc, self.topology()))
+            self._resolution = cached
+        return cached[2]
 
     def block_at(self, point, topo=None, res=None):
         """Id of the block whose region contains point, or None."""
@@ -431,8 +488,56 @@ class SketchModel(QObject):
                     pass
         return made
 
+    # --- patches and smoothing (refinement) -------------------------------------------------
+    def set_block_patch(self, bids, patch=None, patch_opts=None, smoothing="keep"):
+        """Patch type ("CoonsPatch" / "AOPatch", with options) and/or Laplace smoothing
+        (a dict, or None for none) for blocks, in one undo step."""
+        bids = set(bids)
+        with self.edit("Block patch") as doc:
+            for b in doc.blocks:
+                if b.id not in bids:
+                    continue
+                if patch is not None:
+                    b.patch = patch
+                    b.patch_opts = dict(patch_opts or {})
+                if smoothing != "keep":
+                    b.smoothing = dict(smoothing) if smoothing else None
+
+    def refine_blocks(self, bids):
+        """
+        The Refine button: Laplace-smooth the given blocks, in one undo step. Where the
+        (exact) preview shows smoothing would fold cells, as it can next to a concave
+        side, the block gets Eilmer's AOPatch instead. Blocks with boundary-layer
+        spacing are left alone: smoothing would pull their cells off the wall.
+        Returns (smoothed ids, AOPatch ids, skipped ids).
+        """
+        from ..mesh.preview import block_grid
+        from ..mesh.quality import cell_metrics, intentional_aspect
+        from ..model.document import Block, DEFAULT_SMOOTHING
+        res = self.resolution()
+        concrete = res.by_id()
+        layered = intentional_aspect(res.blocks)
+        md = self.doc.with_blocks(res.blocks)
+        smooth, ao, skipped = [], [], []
+        for bid in bids:
+            if bid in layered or bid not in concrete:
+                skipped.append(bid)
+                continue
+            trial = Block(**{**concrete[bid].__dict__, "smoothing": dict(DEFAULT_SMOOTHING)})
+            before = cell_metrics(block_grid(md, concrete[bid]))["inverted"].sum()
+            after = cell_metrics(block_grid(md, trial))["inverted"].sum()
+            (ao if after > before else smooth).append(bid)
+        if smooth or ao:
+            with self.edit("Refine") as doc:
+                for b in doc.blocks:
+                    if b.id in smooth:
+                        b.smoothing = dict(DEFAULT_SMOOTHING)
+                    elif b.id in ao:
+                        b.patch, b.patch_opts, b.smoothing = "AOPatch", {"nx": 10, "ny": 10}, None
+        return smooth, ao, skipped
+
     # --- boundary layers ------------------------------------------------------------------
-    def add_boundary_layer(self, faces, first, growth, cells, transition=True):
+    def add_boundary_layer(self, faces, first, growth, cells, transition=False):
         """
         Boundary layer on block walls [(block id, face)]: the blocks are cut and re-blocked
         with a thin, wall-clustered block along each wall. Returns the layer id.
@@ -464,6 +569,18 @@ class SketchModel(QObject):
         from ..model import layers
         with self.edit("Boundary layer settings") as doc:
             layers.redo_layers(doc, lid, settings)
+
+    def layer_note(self, lid):
+        """A sentence on how well the layer's last cells meet the outer cells, or ''."""
+        from ..model import layers
+        layer = self.layer(lid)
+        ratio, inner, outer = layers.size_jump(self.doc, self.resolution(), layer)
+        if ratio <= 2.0 * max(layer.growth, 1.1):
+            return ""
+        more = math.ceil(math.log(ratio) / math.log(max(layer.growth, 1.05)))
+        return (f"The outer cells ({outer:.3g} m) are {ratio:.0f}x the last layer cell ({inner:.3g} m): "
+                f"about {more} more layer cells at this growth ratio would meet them smoothly, or tick "
+                "'grade the outer blocks' in the layer settings.")
 
     def remove_boundary_layer(self, lid):
         from ..model import layers
@@ -509,6 +626,31 @@ class SketchModel(QObject):
                         new_ids.append(doc.add_point(doc.new_id("pt"), q))
         return new_ids
 
+    def offset(self, ids, distance, reverse=False, source_to_reference=False):
+        """
+        New curves offset from the given ones by distance (metres), in one undo step;
+        the originals stay. Connected curves are offset as chains (closed ones grow,
+        or shrink if reverse). With source_to_reference the picked curves also become
+        reference (dashed) curves with their BC tag cleared, in the same undo step.
+        Returns the new ids; ValueError explains a failure (nothing changes).
+        """
+        from ..model.offset import offset_chains
+        ids = set(ids)
+        curves = [c for cid, c in self.doc.curves.items() if cid in ids]   # document order
+        new = offset_chains(curves, float(distance), reverse)
+        new_ids = []
+        with self.edit("Offset") as doc:
+            if source_to_reference:
+                for c in curves:
+                    src = doc.curves[c.id]
+                    src.kind = REFERENCE
+                    src.bc_tag = ""
+            for c in new:
+                c.id = doc.new_id("c")
+                doc.add_curve(c)
+                new_ids.append(c.id)
+        return new_ids
+
     def delete_selection(self):
         if not self.selection:
             return
@@ -517,15 +659,23 @@ class SketchModel(QObject):
         self._prune_selection()
 
     def toggle_reference(self, ids=None):
+        """Selected curves: reference (dashed drawing aid) <-> solid."""
+        self._toggle_kind(ids, REFERENCE, "Toggle reference")
+
+    def toggle_split(self, ids=None):
+        """Selected curves: block split line (dash-dot) <-> solid."""
+        self._toggle_kind(ids, SPLIT, "Toggle split line")
+
+    def _toggle_kind(self, ids, kind, text):
         ids = set(ids if ids is not None else self.selection) & set(self.doc.curves)
         if not ids:
             return
-        with self.edit("Toggle reference") as doc:
+        with self.edit(text) as doc:
             for cid in ids:
                 c = doc.curves[cid]
-                c.kind = GEOMETRY if c.kind == REFERENCE else REFERENCE
-                if c.kind == REFERENCE:
-                    c.bc_tag = ""
+                c.kind = GEOMETRY if c.kind == kind else kind
+                if c.kind != GEOMETRY:
+                    c.bc_tag = ""                 # only solid curves carry boundary conditions
 
     def set_selection(self, ids):
         ids = set(ids) & self.entity_ids()

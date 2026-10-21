@@ -169,7 +169,7 @@ class BCManagerDialog(QDialog):
 def add_bc_menu(menu, canvas, curve_ids):
     """'Boundary condition' submenu applying to the solid curves among curve_ids."""
     model = canvas.model
-    solid = [i for i in curve_ids if i in model.doc.curves and model.doc.curves[i].kind != "reference"]
+    solid = [i for i in curve_ids if i in model.doc.curves and model.doc.curves[i].kind == "geometry"]
     sub = menu.addMenu("Boundary condition")
     if not solid:
         sub.setEnabled(False)

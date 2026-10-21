@@ -19,7 +19,7 @@ from eilmer_mesher.lua.codegen import generate_geometry_lua
 from eilmer_mesher.mesh.preview import block_grid
 from eilmer_mesher.model import layers
 from eilmer_mesher.model.document import BlockError, Document
-from eilmer_mesher.model.entities import REFERENCE, LineSeg
+from eilmer_mesher.model.entities import SPLIT, LineSeg
 from eilmer_mesher.sketch.block_dialogs import EdgeCellsDialog
 from eilmer_mesher.sketch.layer_dialog import LayerDialog
 from eilmer_mesher.units import Units
@@ -46,6 +46,21 @@ class TestSpacing(unittest.TestCase):
         xr = layers.growth_values(1.2, 10, np.linspace(0, 1, 11), reverse=True)
         np.testing.assert_allclose(xr, 1.0 - x[::-1], atol=1e-15)
 
+    def test_graded_values_grow_then_stay_uniform(self):
+        x = layers.graded_values(1e-3, 1.2, 60)
+        h = np.diff(x)
+        self.assertAlmostEqual(x[-1], 1.0)
+        self.assertAlmostEqual(h[0], 1e-3)
+        self.assertLessEqual((h[1:] / h[:-1]).max(), 1.2 + 1e-12)
+        k = int(np.argmax(np.isclose(h, h[-1])))                    # where the uniform part starts
+        self.assertGreater(k, 10)
+        np.testing.assert_allclose(h[k:], h[-1])
+        np.testing.assert_allclose(h[:k], 1e-3 * 1.2 ** np.arange(k))
+        n = layers.outer_cells(1.0, 1e-3, 1.2, 0.05)          # cells to grow to 0.05, then stay uniform
+        h = np.diff(layers.graded_values(1e-3, 1.2, n))
+        self.assertTrue(0.05 / 1.2 < h[-1] <= 0.05)
+        np.testing.assert_allclose(layers.graded_values(0.5, 1.2, 4), np.linspace(0, 1, 5))
+
     def test_first_cell_from_yplus(self):
         h = layers.first_cell_height(1.0, 100.0, 1.225, 1.789e-5, 1.0)
         self.assertAlmostEqual(h, 3.94e-6, delta=0.02e-6)
@@ -67,10 +82,11 @@ class LayerTest(ModelTest):
                     out.append(np.hypot(*(g[nxt] - g[row]).T))
         return np.concatenate(out)
 
-    def plate(self):
+    def plate(self, transition=False):
         self.ids = self.add(box(0, 0, 1, 0.2))
         self.bid = self.model.make_block((0.5, 0.1))
-        return self.model.add_boundary_layer([(self.bid, "south")], 1e-4, 1.2, 10)
+        self.parent = self.res().by_id()[self.bid]
+        return self.model.add_boundary_layer([(self.bid, "south")], 1e-4, 1.2, 10, transition)
 
 
 class TestCutting(LayerTest):
@@ -84,13 +100,26 @@ class TestCutting(LayerTest):
         self.assertEqual(thin.niv, res.blocks[0].niv)
         layer = self.model.layer(lid)
         self.assertEqual(self.model.doc.curves[layer.curves[0]].type, "line")
-        self.assertEqual(self.model.doc.curves[layer.curves[0]].kind, REFERENCE)
-        # The outer block grades on from the last layer cell, at no more than the layer's ratio.
+        self.assertEqual(self.model.doc.curves[layer.curves[0]].kind, SPLIT)
+        # By default the outer block keeps the cells the block had, uniform.
         outer = next(b for b in res.blocks if b is not thin)
-        g = block_grid(self.model.doc.with_blocks(res.blocks), outer)[0, :, 1]
-        h = np.diff(g)
+        self.assertEqual(outer.njv, self.parent.njv)
+        h = np.diff(block_grid(self.model.doc.with_blocks(res.blocks), outer)[0, :, 1])
+        np.testing.assert_allclose(h, h[0])
+        self.assertIn("more layer cells", self.model.layer_note(lid))      # 1e-4 * 1.2^9 meets ~0.05 cells
+
+    def test_flat_plate_graded(self):
+        self.plate(transition=True)
+        res = self.res()
+        thin = next(b for b in res.blocks if b.njv == 11)
+        outer = next(b for b in res.blocks if b is not thin)
+        # The outer block grows from the last layer cell, at no more than the layer's ratio,
+        # up to the block's original cell size and is uniform from there.
+        h = np.diff(block_grid(self.model.doc.with_blocks(res.blocks), outer)[0, :, 1])
         self.assertAlmostEqual(h[0], 1e-4 * 1.2 ** 9, delta=1e-12)
         self.assertLessEqual((h[1:] / h[:-1]).max(), 1.2 + 1e-9)
+        original = 0.2 / (self.parent.njv - 1)
+        self.assertLessEqual(h.max(), original * (1 + 1e-9))
 
     def test_too_thick_is_refused_and_nothing_changes(self):
         self.ids = self.add(box(0, 0, 1, 0.2))
@@ -119,7 +148,7 @@ class TestCutting(LayerTest):
             self.model.add_boundary_layer([(thin.id, "north")], 1e-4, 1.2, 10)    # the dashed cut
 
     def test_cut_continues_into_neighbours(self):
-        self.add(box(0, 0, 2, 0.5) + [LineSeg(None, kind=REFERENCE, p0=(1, 0), p1=(1, 0.5))])
+        self.add(box(0, 0, 2, 0.5) + [LineSeg(None, kind=SPLIT, p0=(1, 0), p1=(1, 0.5))])
         self.model.make_all_blocks()
         right = self.model.block_at((1.5, 0.2))
         self.model.add_boundary_layer([(right, "south")], 1e-3, 1.2, 8)
@@ -201,7 +230,7 @@ class TestWallTags(LayerTest):
         self.assertEqual(wall.bc_tag, "wall")
         self.assertEqual(self.model.doc.bcs["wall"]["class"], "WallBC_NoSlip_Adiabatic")
         self.assertEqual([c.bc_tag for c in self.model.doc.curves.values() if c.id != wall.id
-                          and c.kind != REFERENCE], ["", "", ""])          # only the wall
+                          and c.kind == "geometry"], ["", "", ""])          # only the wall
         md = self.model.doc.with_blocks(self.res().blocks)
         self.assertIn('south="wall"', generate_geometry_lua(md))
         self.model.edit_boundary_layer(lid, cells=6)                       # re-cut keeps the tag
@@ -237,7 +266,9 @@ class TestCascade(LayerTest):
         res = self.res()
         self.assertEqual((len(res.blocks), res.errors), (3, {}))
         self.assertEqual([layer.id for layer in self.model.doc.layers], [first, second])
-        self.assertEqual(sorted(b.njv for b in res.blocks)[:2], [6, 7])
+        njv = {bid: b.njv for bid, b in res.by_id().items()}
+        self.assertEqual((njv[self.model.block_at((0.5, 1e-4))], njv[self.model.block_at((0.5, 0.3 - 1e-4))]),
+                         (6, 7))
         self.model.remove_boundary_layer(first)
         self.assertEqual(len(self.res().blocks), 2)
         self.assertEqual([layer.id for layer in self.model.doc.layers], [second])
@@ -252,6 +283,12 @@ class TestEdgeDialog(unittest.TestCase):
         self.assertEqual(cells, 10)
         self.assertAlmostEqual(out["first"], 2.54e-4)
         self.assertTrue(out["reverse"])
+
+
+    def test_graded_spacing_is_kept(self):
+        spec = {"type": "Grade", "first": 1e-3, "growth": 1.2, "reverse": False}
+        _, out, _ = EdgeCellsDialog(30, spec).values()
+        self.assertEqual(out, spec)
 
 
 class TestLayerTool(SketchTest):
